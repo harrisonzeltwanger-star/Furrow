@@ -1,0 +1,696 @@
+// ============================================
+// PRISMA SCHEMA - HAY PROCUREMENT & LOGISTICS PORTAL
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum OrganizationType {
+  BUYER
+  GROWER
+}
+
+enum UserRole {
+  FARM_ADMIN
+  MANAGER
+  VIEWER
+}
+
+enum POStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum LoadStatus {
+  PENDING
+  CONFIRMED
+  EXCEPTION
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+  ESCALATED
+}
+
+enum ScaleConnectionType {
+  MANUAL
+  WEBSOCKET
+  BLUETOOTH
+  API
+  SERIAL
+}
+
+// ============================================
+// USERS & ORGANIZATIONS
+// ============================================
+
+model Organization {
+  id                    String           @id @default(uuid())
+  name                  String
+  type                  OrganizationType
+
+  // Payment details
+  achRoutingNumber      String?          @map("ach_routing_number")
+  achAccountNumber      String?          @map("ach_account_number")
+  taxId                 String?          @map("tax_id")
+
+  // Invoice settings
+  invoiceEmail          String?          @map("invoice_email")
+  billingContactName    String?          @map("billing_contact_name")
+  billingContactPhone   String?          @map("billing_contact_phone")
+
+  createdAt             DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  users                 User[]
+  farmLocations         FarmLocation[]
+  listings              Listing[]
+  buyerSites            BuyerSite[]
+  barns                 Barn[]
+  feedPads              FeedPad[]
+  purchaseOrdersAsBuyer PurchaseOrder[]  @relation("BuyerOrders")
+  purchaseOrdersAsGrower PurchaseOrder[] @relation("GrowerOrders")
+  invoicesAsBuyer       Invoice[]        @relation("BuyerInvoices")
+  invoicesAsGrower      Invoice[]        @relation("GrowerInvoices")
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String       @map("password_hash")
+  name           String
+  phone          String?
+
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  role           UserRole
+  createdById    String?      @map("created_by")
+  createdBy      User?        @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers   User[]       @relation("UserCreatedBy")
+
+  lastLogin      DateTime?    @map("last_login")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  purchaseOrdersCreated PurchaseOrder[] @relation("CreatedByUser")
+  posBuyerSigned        PurchaseOrder[] @relation("BuyerSignedBy")
+  posGrowerSigned       PurchaseOrder[] @relation("GrowerSignedBy")
+  loadsEntered          Load[]          @relation("EnteredByUser")
+  loadsExceptionResolved Load[]         @relation("ExceptionResolvedBy")
+  inventoryTransactions InventoryTransaction[]
+  invoicesApproved      Invoice[]
+  disputesRaised        Dispute[]       @relation("RaisedBy")
+  disputesBuyerAdmin    Dispute[]       @relation("BuyerAdmin")
+  disputesGrowerAdmin   Dispute[]       @relation("GrowerAdmin")
+  auditLogs             AuditLog[]
+  loadEdits             LoadEdit[]
+
+  @@map("users")
+}
+
+// ============================================
+// BUYER SITES & INFRASTRUCTURE
+// ============================================
+
+model BuyerSite {
+  id                String        @id @default(uuid())
+  organizationId    String        @map("organization_id")
+  organization      Organization  @relation(fields: [organizationId], references: [id])
+
+  siteName          String        @map("site_name")
+  siteCode          String        @unique @map("site_code")
+
+  // Location
+  address           String?
+  latitude          Float?
+  longitude         Float?
+
+  // Operations
+  scaleLocationId   String?       @map("scale_location_id")
+  scaleLocation     ScaleLocation? @relation(fields: [scaleLocationId], references: [id])
+
+  defaultFeedPadId  String?       @map("default_feed_pad_id")
+  defaultFeedPad    FeedPad?      @relation(fields: [defaultFeedPadId], references: [id])
+
+  // Maps & directions
+  satelliteImageUrl String?       @map("satellite_image_url")
+  siteMapUrl        String?       @map("site_map_url")
+
+  isActive          Boolean       @default(true) @map("is_active")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  barns             Barn[]
+  purchaseOrders    PurchaseOrder[]
+
+  @@unique([organizationId, siteName])
+  @@map("buyer_sites")
+}
+
+model ScaleLocation {
+  id                 String              @id @default(uuid())
+  organizationId     String              @map("organization_id")
+
+  siteName           String              @map("site_name")
+  location           String?
+  latitude           Float?
+  longitude          Float?
+
+  // Scale hardware
+  scaleModel         String?             @map("scale_model")
+  scaleSerialNumber  String?             @map("scale_serial_number")
+  connectionType     ScaleConnectionType @map("connection_type")
+  connectionEndpoint String?             @map("connection_endpoint")
+
+  // Configuration
+  weightUnit         String              @default("lbs") @map("weight_unit")
+  tareAutoCapture    Boolean             @default(true) @map("tare_auto_capture")
+
+  isActive           Boolean             @default(true) @map("is_active")
+  lastReadingAt      DateTime?           @map("last_reading_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  // Relations
+  loads              Load[]
+  scaleReadings      ScaleReading[]
+  buyerSites         BuyerSite[]
+
+  @@map("scale_locations")
+}
+
+model ScaleReading {
+  id              String        @id @default(uuid())
+  scaleLocationId String        @map("scale_location_id")
+  scaleLocation   ScaleLocation @relation(fields: [scaleLocationId], references: [id])
+
+  weight          Float
+  stable          Boolean       @default(false)
+  timestamp       DateTime      @default(now())
+
+  @@index([scaleLocationId, timestamp])
+  @@map("scale_readings")
+}
+
+model Barn {
+  id              String               @id @default(uuid())
+  organizationId  String               @map("organization_id")
+  organization    Organization         @relation(fields: [organizationId], references: [id])
+
+  buyerSiteId     String?              @map("buyer_site_id")
+  buyerSite       BuyerSite?           @relation(fields: [buyerSiteId], references: [id])
+
+  name            String
+  location        String?
+  capacityTons    Float?               @map("capacity_tons")
+  currentTons     Float                @default(0) @map("current_tons")
+
+  // Routing
+  satelliteImageUrl   String?          @map("satellite_image_url")
+  drivingInstructions String?          @map("driving_instructions")
+  priority            Int              @default(0)
+  maxCapacityPercent  Float            @default(95.0) @map("max_capacity_percent")
+
+  isActive        Boolean              @default(true) @map("is_active")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  // Relations
+  loads           Load[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@map("barns")
+}
+
+model FeedPad {
+  id                  String        @id @default(uuid())
+  organizationId      String        @map("organization_id")
+  organization        Organization  @relation(fields: [organizationId], references: [id])
+
+  name                String
+  location            String?
+  satelliteImageUrl   String?       @map("satellite_image_url")
+  drivingInstructions String?       @map("driving_instructions")
+
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  loads               Load[]
+  buyerSites          BuyerSite[]
+
+  @@map("feed_pads")
+}
+
+// ============================================
+// GROWER LISTINGS
+// ============================================
+
+model FarmLocation {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name           String
+  address        String?
+  latitude       Float?
+  longitude      Float?
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  listings       Listing[]
+
+  @@map("farm_locations")
+}
+
+model Listing {
+  id              String         @id @default(uuid())
+  organizationId  String         @map("organization_id")
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+
+  farmLocationId  String         @map("farm_location_id")
+  farmLocation    FarmLocation   @relation(fields: [farmLocationId], references: [id])
+
+  stackId         String         @unique @map("stack_id")
+  productType     String?        @map("product_type")
+  pricePerTon     Float          @map("price_per_ton")
+
+  estimatedTons   Float?         @map("estimated_tons")
+  baleCount       Int?           @map("bale_count")
+  moisturePercent Float?         @map("moisture_percent")
+
+  status          String         @default("available")
+  notes           String?
+
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  photos          ListingPhoto[]
+  documents       ListingDocument[]
+  poStacks        POStack[]
+  loads           Load[]
+
+  @@index([organizationId, status])
+  @@map("listings")
+}
+
+model ListingPhoto {
+  id         String   @id @default(uuid())
+  listingId  String   @map("listing_id")
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  fileUrl    String   @map("file_url")
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+
+  @@map("listing_photos")
+}
+
+model ListingDocument {
+  id           String   @id @default(uuid())
+  listingId    String   @map("listing_id")
+  listing      Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  documentType String?  @map("document_type")
+  fileUrl      String   @map("file_url")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  @@map("listing_documents")
+}
+
+// ============================================
+// PURCHASE ORDERS
+// ============================================
+
+model PurchaseOrder {
+  id                String     @id @default(uuid())
+  poNumber          String     @unique @map("po_number")
+
+  buyerOrgId        String     @map("buyer_org_id")
+  buyerOrg          Organization @relation("BuyerOrders", fields: [buyerOrgId], references: [id])
+
+  growerOrgId       String     @map("grower_org_id")
+  growerOrg         Organization @relation("GrowerOrders", fields: [growerOrgId], references: [id])
+
+  destinationSiteId String?    @map("destination_site_id")
+  destinationSite   BuyerSite? @relation(fields: [destinationSiteId], references: [id])
+
+  // Contract details
+  contractedTons    Float      @map("contracted_tons")
+  pricePerTon       Float      @map("price_per_ton")
+
+  // Delivery window
+  deliveryStartDate DateTime?  @map("delivery_start_date")
+  deliveryEndDate   DateTime?  @map("delivery_end_date")
+
+  // Quality specs
+  maxMoisturePercent Float?    @map("max_moisture_percent")
+  qualityNotes      String?    @map("quality_notes")
+
+  // Tracking
+  status            POStatus   @default(DRAFT)
+  deliveredTons     Float      @default(0) @map("delivered_tons")
+
+  // Contract signing
+  contractFileUrl   String?    @map("contract_file_url")
+  signedByBuyerId   String?    @map("signed_by_buyer_id")
+  signedByBuyer     User?      @relation("BuyerSignedBy", fields: [signedByBuyerId], references: [id])
+  signedByGrowerId  String?    @map("signed_by_grower_id")
+  signedByGrower    User?      @relation("GrowerSignedBy", fields: [signedByGrowerId], references: [id])
+  signedAt          DateTime?  @map("signed_at")
+
+  // Timestamps
+  createdById       String     @map("created_by")
+  createdBy         User       @relation("CreatedByUser", fields: [createdById], references: [id])
+  createdAt         DateTime   @default(now()) @map("created_at")
+  completedAt       DateTime?  @map("completed_at")
+
+  // Relations
+  poStacks          POStack[]
+  loads             Load[]
+  inventoryTransactions InventoryTransaction[]
+  invoices          Invoice[]
+  disputes          Dispute[]
+
+  @@index([buyerOrgId, status])
+  @@index([growerOrgId, status])
+  @@map("purchase_orders")
+}
+
+model POStack {
+  id            String        @id @default(uuid())
+  poId          String        @map("po_id")
+  po            PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  listingId     String        @map("listing_id")
+  listing       Listing       @relation(fields: [listingId], references: [id])
+
+  allocatedTons Float         @map("allocated_tons")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@unique([poId, listingId])
+  @@map("po_stacks")
+}
+
+// ============================================
+// LOADS & DELIVERIES
+// ============================================
+
+model TruckingCompany {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  contactPhone String?  @map("contact_phone")
+  contactEmail String?  @map("contact_email")
+  notes        String?
+
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  drivers      Driver[]
+  loads        Load[]
+
+  @@map("trucking_companies")
+}
+
+model Driver {
+  id                 String          @id @default(uuid())
+  truckingCompanyId  String          @map("trucking_company_id")
+  truckingCompany    TruckingCompany @relation(fields: [truckingCompanyId], references: [id])
+
+  name               String
+  phone              String?
+  licenseNumber      String?         @map("license_number")
+
+  isActive           Boolean         @default(true) @map("is_active")
+  lastDelivery       DateTime?       @map("last_delivery")
+  createdAt          DateTime        @default(now()) @map("created_at")
+
+  // Relations
+  loads              Load[]
+
+  @@unique([truckingCompanyId, name])
+  @@map("drivers")
+}
+
+model Load {
+  id                     String           @id @default(uuid())
+  loadNumber             String           @unique @map("load_number")
+
+  poId                   String           @map("po_id")
+  po                     PurchaseOrder    @relation(fields: [poId], references: [id])
+
+  listingId              String           @map("listing_id")
+  listing                Listing          @relation(fields: [listingId], references: [id])
+
+  // Trucking info
+  truckingCompanyId      String?          @map("trucking_company_id")
+  truckingCompany        TruckingCompany? @relation(fields: [truckingCompanyId], references: [id])
+
+  driverId               String?          @map("driver_id")
+  driver                 Driver?          @relation(fields: [driverId], references: [id])
+
+  truckId                String?          @map("truck_id")
+
+  // Weight data
+  grossWeight            Float?           @map("gross_weight")
+  tareWeight             Float?           @map("tare_weight")
+  grossWeightTimestamp   DateTime?        @map("gross_weight_timestamp")
+  tareWeightTimestamp    DateTime?        @map("tare_weight_timestamp")
+  grossWeightStable      Boolean          @default(false) @map("gross_weight_stable")
+  tareWeightStable       Boolean          @default(false) @map("tare_weight_stable")
+
+  // Scale tracking
+  scaleLocationId        String?          @map("scale_location_id")
+  scaleLocation          ScaleLocation?   @relation(fields: [scaleLocationId], references: [id])
+  manualWeightEntry      Boolean          @default(false) @map("manual_weight_entry")
+  manualEntryReason      String?          @map("manual_entry_reason")
+
+  // Delivery info
+  deliveryDatetime       DateTime         @map("delivery_datetime")
+  totalBaleCount         Int?             @map("total_bale_count")
+  wetBalesCount          Int              @default(0) @map("wet_bales_count")
+
+  // Quality check
+  moisturePercent        Float?           @map("moisture_percent")
+  qualityNotes           String?          @map("quality_notes")
+
+  // Assignment
+  barnId                 String?          @map("barn_id")
+  barn                   Barn?            @relation(fields: [barnId], references: [id])
+
+  feedPadId              String?          @map("feed_pad_id")
+  feedPad                FeedPad?         @relation(fields: [feedPadId], references: [id])
+
+  isFlagged              Boolean          @default(false) @map("is_flagged")
+  flagReason             String?          @map("flag_reason")
+  feedPadRedirect        Boolean          @default(false) @map("feed_pad_redirect")
+
+  // Status & exceptions
+  status                 LoadStatus       @default(PENDING)
+  exceptionReason        String?          @map("exception_reason")
+  exceptionResolvedById  String?          @map("exception_resolved_by")
+  exceptionResolvedBy    User?            @relation("ExceptionResolvedBy", fields: [exceptionResolvedById], references: [id])
+  exceptionResolvedAt    DateTime?        @map("exception_resolved_at")
+
+  // Metadata
+  enteredById            String           @map("entered_by")
+  enteredBy              User             @relation("EnteredByUser", fields: [enteredById], references: [id])
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  inventoryTransactions  InventoryTransaction[]
+  loadEdits              LoadEdit[]
+  disputes               Dispute[]
+
+  @@index([poId, deliveryDatetime])
+  @@index([scaleLocationId, deliveryDatetime])
+  @@map("loads")
+}
+
+model LoadEdit {
+  id          String   @id @default(uuid())
+  loadId      String   @map("load_id")
+  load        Load     @relation(fields: [loadId], references: [id])
+
+  editedById  String   @map("edited_by")
+  editedBy    User     @relation(fields: [editedById], references: [id])
+
+  fieldName   String   @map("field_name")
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  editReason  String?  @map("edit_reason")
+
+  editedAt    DateTime @default(now()) @map("edited_at")
+
+  @@index([loadId])
+  @@map("load_edits")
+}
+
+// ============================================
+// INVENTORY
+// ============================================
+
+model InventoryTransaction {
+  id              String        @id @default(uuid())
+
+  barnId          String        @map("barn_id")
+  barn            Barn          @relation(fields: [barnId], references: [id])
+
+  loadId          String?       @map("load_id")
+  load            Load?         @relation(fields: [loadId], references: [id])
+
+  poId            String?       @map("po_id")
+  po              PurchaseOrder? @relation(fields: [poId], references: [id])
+
+  transactionType String        @map("transaction_type")
+  tons            Float
+  balanceAfter    Float         @map("balance_after")
+
+  notes           String?
+
+  createdById     String        @map("created_by")
+  createdBy       User          @relation(fields: [createdById], references: [id])
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([barnId, createdAt])
+  @@map("inventory_transactions")
+}
+
+// ============================================
+// PAYMENTS & SETTLEMENT
+// ============================================
+
+model Invoice {
+  id              String        @id @default(uuid())
+  invoiceNumber   String        @unique @map("invoice_number")
+
+  poId            String        @map("po_id")
+  po              PurchaseOrder @relation(fields: [poId], references: [id])
+
+  growerOrgId     String        @map("grower_org_id")
+  growerOrg       Organization  @relation("GrowerInvoices", fields: [growerOrgId], references: [id])
+
+  buyerOrgId      String        @map("buyer_org_id")
+  buyerOrg        Organization  @relation("BuyerInvoices", fields: [buyerOrgId], references: [id])
+
+  // Amounts
+  totalTons       Float         @map("total_tons")
+  pricePerTon     Float         @map("price_per_ton")
+  subtotal        Float
+  adjustments     Float         @default(0)
+  totalAmount     Float         @map("total_amount")
+
+  // Payment tracking
+  paymentStatus   PaymentStatus @default(PENDING) @map("payment_status")
+  approvedById    String?       @map("approved_by")
+  approvedBy      User?         @relation(fields: [approvedById], references: [id])
+  approvedAt      DateTime?     @map("approved_at")
+  paidAt          DateTime?     @map("paid_at")
+
+  // ACH details
+  achTraceNumber      String?   @map("ach_trace_number")
+  achTransactionDate  DateTime? @map("ach_transaction_date")
+
+  // Auto-generation
+  autoGenerated   Boolean       @default(false) @map("auto_generated")
+  sentToEmail     String?       @map("sent_to_email")
+  sentAt          DateTime?     @map("sent_at")
+  emailDeliveryStatus String?   @map("email_delivery_status")
+
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([buyerOrgId, paymentStatus])
+  @@index([growerOrgId, paymentStatus])
+  @@map("invoices")
+}
+
+// ============================================
+// DISPUTES & RESOLUTION
+// ============================================
+
+model Dispute {
+  id                 String        @id @default(uuid())
+
+  poId               String        @map("po_id")
+  po                 PurchaseOrder @relation(fields: [poId], references: [id])
+
+  loadId             String?       @map("load_id")
+  load               Load?         @relation(fields: [loadId], references: [id])
+
+  disputeType        String        @map("dispute_type")
+  description        String
+  proposedResolution String?       @map("proposed_resolution")
+
+  status             DisputeStatus @default(OPEN)
+
+  // Parties
+  raisedById         String        @map("raised_by")
+  raisedBy           User          @relation("RaisedBy", fields: [raisedById], references: [id])
+
+  buyerAdminId       String?       @map("buyer_admin_id")
+  buyerAdmin         User?         @relation("BuyerAdmin", fields: [buyerAdminId], references: [id])
+
+  growerAdminId      String?       @map("grower_admin_id")
+  growerAdmin        User?         @relation("GrowerAdmin", fields: [growerAdminId], references: [id])
+
+  // Resolution
+  resolutionNotes    String?       @map("resolution_notes")
+  resolvedAt         DateTime?     @map("resolved_at")
+
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  @@index([poId, status])
+  @@map("disputes")
+}
+
+// ============================================
+// AUDIT LOGS
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id])
+
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
