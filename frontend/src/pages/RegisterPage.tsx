@@ -50,6 +50,11 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-8">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground font-bold text-lg">F</span>
+            </div>
+          </div>
           <CardTitle className="text-2xl">Create Account</CardTitle>
           <CardDescription>Register your organization</CardDescription>
         </CardHeader>

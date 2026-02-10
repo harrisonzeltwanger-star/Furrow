@@ -84,6 +84,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
         role: result.user.role,
         organizationId: result.user.organizationId,
         organizationName: result.org.name,
+        organizationType: result.org.type,
       },
     });
   } catch (error) {
@@ -151,6 +152,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         role: user.role,
         organizationId: user.organizationId,
         organizationName: user.organization.name,
+        organizationType: user.organization.type,
       },
     });
   } catch (error) {
@@ -219,6 +221,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         role: user.role,
         organizationId: user.organizationId,
         organizationName: user.organization.name,
+        organizationType: user.organization.type,
       },
     });
   } catch {

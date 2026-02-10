@@ -1,7 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { config } from './config/env';
 import authRouter from './routes/auth';
+import listingsRouter from './routes/listings';
+import farmLocationsRouter from './routes/farmLocations';
+import negotiationsRouter from './routes/negotiations';
 
 const app = express();
 
@@ -12,6 +16,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -19,6 +26,9 @@ app.get('/health', (_req, res) => {
 
 // API routes
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/listings', listingsRouter);
+app.use('/api/v1/farm-locations', farmLocationsRouter);
+app.use('/api/v1/negotiations', negotiationsRouter);
 
 // 404 handler
 app.use((_req, res) => {

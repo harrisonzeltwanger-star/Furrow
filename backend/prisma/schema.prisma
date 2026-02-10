@@ -95,6 +95,8 @@ model Organization {
   purchaseOrdersAsGrower PurchaseOrder[] @relation("GrowerOrders")
   invoicesAsBuyer       Invoice[]        @relation("BuyerInvoices")
   invoicesAsGrower      Invoice[]        @relation("GrowerInvoices")
+  negotiationsAsBuyer   Negotiation[]    @relation("BuyerNegotiations")
+  negotiationsAsGrower  Negotiation[]    @relation("GrowerNegotiations")
 
   @@map("organizations")
 }
@@ -131,6 +133,7 @@ model User {
   disputesGrowerAdmin   Dispute[]       @relation("GrowerAdmin")
   auditLogs             AuditLog[]
   loadEdits             LoadEdit[]
+  negotiationOffers     Negotiation[]    @relation("NegotiationOffers")
 
   @@map("users")
 }
@@ -305,6 +308,9 @@ model Listing {
   moisturePercent Float?         @map("moisture_percent")
 
   status          String         @default("available")
+  firmPrice       Boolean        @default(false) @map("firm_price")
+  isDeliveredPrice Boolean       @default(false) @map("is_delivered_price")
+  truckingCoordinatedBy String?  @map("trucking_coordinated_by")
   notes           String?
 
   createdAt       DateTime       @default(now()) @map("created_at")
@@ -313,6 +319,7 @@ model Listing {
   // Relations
   photos          ListingPhoto[]
   documents       ListingDocument[]
+  negotiations    Negotiation[]
   poStacks        POStack[]
   loads           Load[]
 
@@ -341,6 +348,48 @@ model ListingDocument {
   uploadedAt   DateTime @default(now()) @map("uploaded_at")
 
   @@map("listing_documents")
+}
+
+// ============================================
+// NEGOTIATIONS / COUNTER OFFERS
+// ============================================
+
+model Negotiation {
+  id              String       @id @default(uuid())
+  listingId       String       @map("listing_id")
+  listing         Listing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  buyerOrgId      String       @map("buyer_org_id")
+  buyerOrg        Organization @relation("BuyerNegotiations", fields: [buyerOrgId], references: [id])
+
+  growerOrgId     String       @map("grower_org_id")
+  growerOrg       Organization @relation("GrowerNegotiations", fields: [growerOrgId], references: [id])
+
+  // Current state
+  status          String       @default("pending") // pending, accepted, rejected, countered, expired
+  offeredPricePerTon Float     @map("offered_price_per_ton")
+  offeredTons     Float?       @map("offered_tons")
+  message         String?
+
+  // Who made this offer
+  offeredByOrgId  String       @map("offered_by_org_id")
+  offeredByUserId String       @map("offered_by_user_id")
+  offeredByUser   User         @relation("NegotiationOffers", fields: [offeredByUserId], references: [id])
+
+  // If accepted, the resulting PO
+  purchaseOrderId String?      @map("purchase_order_id")
+
+  // History
+  parentId        String?      @map("parent_id")
+  parent          Negotiation? @relation("NegotiationThread", fields: [parentId], references: [id])
+  replies         Negotiation[] @relation("NegotiationThread")
+
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  @@index([listingId, status])
+  @@index([buyerOrgId])
+  @@index([growerOrgId])
+  @@map("negotiations")
 }
 
 // ============================================
