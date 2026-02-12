@@ -461,7 +461,7 @@ export default function ContractsPage() {
             const isLoading = loadingId === p.id;
 
             // Filter deliveries for expanded view
-            const filteredDeliveries = deliveries.filter((d) => {
+            const filteredDeliveries = deliveries.filter((_d) => {
               if (vendorFilter !== 'all') {
                 // We don't have vendor on individual deliveries here so skip vendor filter
                 // (deliveries are already scoped to this PO)

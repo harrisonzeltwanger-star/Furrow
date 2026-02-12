@@ -3,7 +3,7 @@ import api from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+// Label removed - unused
 import { Card, CardContent } from '@/components/ui/card';
 import * as XLSX from 'xlsx';
 

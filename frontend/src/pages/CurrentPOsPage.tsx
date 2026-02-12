@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 interface POListing {
@@ -83,7 +83,7 @@ function formatDate(dateStr: string | null): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
-function mapsUrl(lat: number | null, lng: number | null, label?: string): string | null {
+function mapsUrl(lat: number | null, lng: number | null, _label?: string): string | null {
   if (lat == null || lng == null) return null;
   return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 }
@@ -424,7 +424,6 @@ export default function CurrentPOsPage() {
   }, [pos, typeFilter, centerFilter]);
 
   const totalContractedTons = useMemo(() => filteredPOs.reduce((sum, p) => sum + p.contractedTons, 0), [filteredPOs]);
-  const totalDeliveredTons = useMemo(() => filteredPOs.reduce((sum, p) => sum + p.deliveredTons, 0), [filteredPOs]);
   const overallPct = useMemo(() => {
     if (filteredPOs.length === 0) return 0;
     const sum = filteredPOs.reduce((acc, p) => {

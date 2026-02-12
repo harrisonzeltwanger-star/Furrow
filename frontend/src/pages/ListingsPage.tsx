@@ -171,8 +171,6 @@ export default function ListingsPage() {
   // Accept offer → contract review dialog
   const [acceptListing, setAcceptListing] = useState<Listing | null>(null);
 
-  const isBuyer = user?.organizationType === 'BUYER';
-
   const contractDetails: ContractDetails | null = acceptListing ? {
     stackId: acceptListing.stackId,
     productType: acceptListing.productType,
@@ -340,11 +338,7 @@ export default function ListingsPage() {
     ? [markers[0].farmLocation.latitude!, markers[0].farmLocation.longitude!]
     : [35.5, -98.0];
 
-  const statusColors: Record<string, string> = {
-    available: 'bg-primary/15 text-primary',
-    under_contract: 'bg-hay-gold/30 text-hay-gold-foreground',
-    depleted: 'bg-muted text-muted-foreground',
-  };
+
 
   if (loading) {
     return (
