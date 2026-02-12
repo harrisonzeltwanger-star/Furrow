@@ -1,24 +1,17 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import path from 'path';
 import multer from 'multer';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
+import { uploadFile } from '../services/storageService';
 
-// Multer config for file uploads
-const storage = multer.diskStorage({
-  destination: path.join(__dirname, '../../uploads'),
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `${unique}${ext}`);
-  },
-});
+// Multer config — memory storage for Supabase uploads
+const memStorage = multer.memoryStorage();
 
 const photoUpload = multer({
-  storage,
+  storage: memStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -30,7 +23,7 @@ const photoUpload = multer({
 });
 
 const docUpload = multer({
-  storage,
+  storage: memStorage,
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
   fileFilter: (_req, file, cb) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
@@ -345,14 +338,15 @@ router.post('/:id/photos', requireRole('FARM_ADMIN', 'MANAGER'), photoUpload.arr
     }
 
     const photos = await Promise.all(
-      files.map((file) =>
-        prisma.listingPhoto.create({
-          data: {
-            listingId: listing.id,
-            fileUrl: `/uploads/${file.filename}`,
-          },
-        })
-      )
+      files.map(async (file) => {
+        const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const ext = file.originalname.split('.').pop() || 'jpg';
+        const filename = `${listing.id}/${unique}.${ext}`;
+        const fileUrl = await uploadFile('listings', file.buffer, filename, file.mimetype);
+        return prisma.listingPhoto.create({
+          data: { listingId: listing.id, fileUrl },
+        });
+      })
     );
 
     res.status(201).json({ photos });
@@ -380,15 +374,19 @@ router.post('/:id/documents', requireRole('FARM_ADMIN', 'MANAGER'), docUpload.ar
     }
 
     const documents = await Promise.all(
-      files.map((file) =>
-        prisma.listingDocument.create({
+      files.map(async (file) => {
+        const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const ext = file.originalname.split('.').pop() || 'pdf';
+        const filename = `${listing.id}/${unique}.${ext}`;
+        const fileUrl = await uploadFile('documents', file.buffer, filename, file.mimetype);
+        return prisma.listingDocument.create({
           data: {
             listingId: listing.id,
             documentType: file.mimetype === 'application/pdf' ? 'PDF' : 'IMAGE',
-            fileUrl: `/uploads/${file.filename}`,
+            fileUrl,
           },
-        })
-      )
+        });
+      })
     );
 
     res.status(201).json({ documents });

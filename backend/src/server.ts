@@ -20,6 +20,7 @@ import farmLocationsRouter from './routes/farmLocations';
 import negotiationsRouter from './routes/negotiations';
 import purchaseOrdersRouter from './routes/purchaseOrders';
 import usersRouter from './routes/users';
+import invoicesRouter from './routes/invoices';
 
 const app = express();
 
@@ -65,9 +66,6 @@ const authLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -80,6 +78,7 @@ app.use('/api/v1/farm-locations', farmLocationsRouter);
 app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/purchase-orders', purchaseOrdersRouter);
 app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/invoices', invoicesRouter);
 
 // Serve frontend in production
 if (process.env.NODE_ENV === 'production') {

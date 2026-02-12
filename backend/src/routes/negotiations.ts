@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
+import { parsePagination, paginationMeta } from '../utils/pagination';
 
 const router = Router();
 
@@ -107,6 +108,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const status = qstr(req.query.status);
     const orgId = req.user!.organizationId;
+    const { page, limit, skip } = parsePagination(req.query);
 
     const where: Record<string, unknown> = {
       OR: [{ buyerOrgId: orgId }, { growerOrgId: orgId }],
@@ -114,9 +116,6 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     };
 
     if (status) {
-      // For filtering, look at the latest offer in each thread.
-      // Simple approach: filter root negotiations by status, OR find threads with a child of this status.
-      // For simplicity, we'll just filter root where the root or any child has the status.
       delete where.parentId;
       (where as Record<string, unknown>).AND = [
         { OR: [{ buyerOrgId: orgId }, { growerOrgId: orgId }] },
@@ -130,27 +129,34 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       delete (where as Record<string, unknown>).OR;
     }
 
-    const negotiations = await prisma.negotiation.findMany({
-      where: where as any,
-      include: {
-        listing: {
-          select: { id: true, stackId: true, pricePerTon: true, productType: true, baleType: true, estimatedTons: true, status: true, isDeliveredPrice: true, truckingCoordinatedBy: true, farmLocation: { select: { name: true } } },
-        },
-        buyerOrg: { select: { id: true, name: true } },
-        growerOrg: { select: { id: true, name: true } },
-        offeredByUser: { select: { id: true, name: true } },
-        replies: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          include: {
-            offeredByUser: { select: { id: true, name: true } },
-          },
+    const negotiationIncludes = {
+      listing: {
+        select: { id: true, stackId: true, pricePerTon: true, productType: true, baleType: true, estimatedTons: true, status: true, isDeliveredPrice: true, truckingCoordinatedBy: true, farmLocation: { select: { name: true } } },
+      },
+      buyerOrg: { select: { id: true, name: true } },
+      growerOrg: { select: { id: true, name: true } },
+      offeredByUser: { select: { id: true, name: true } },
+      replies: {
+        orderBy: { createdAt: 'desc' as const },
+        take: 1,
+        include: {
+          offeredByUser: { select: { id: true, name: true } },
         },
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
 
-    res.json({ negotiations });
+    const [negotiations, totalItems] = await Promise.all([
+      prisma.negotiation.findMany({
+        where: where as any,
+        include: negotiationIncludes,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.negotiation.count({ where: where as any }),
+    ]);
+
+    res.json({ negotiations, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List negotiations error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list negotiations' } });

@@ -6,6 +6,7 @@ import prisma from '../config/database';
 import { config } from '../config/env';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
+import { parsePagination, paginationMeta } from '../utils/pagination';
 
 const router = Router();
 
@@ -40,21 +41,29 @@ function generateTokens(payload: { userId: string; email: string; role: string; 
 // GET /users/team — List users in caller's org
 router.get('/team', authenticate, requireRole('FARM_ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const users = await prisma.user.findMany({
-      where: { organizationId: req.user!.organizationId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        isActive: true,
-        lastLogin: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const { page, limit, skip } = parsePagination(req.query);
+    const where = { organizationId: req.user!.organizationId };
 
-    res.json({ users });
+    const [users, totalItems] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          lastLogin: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    res.json({ users, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List team error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list team' } });
@@ -64,29 +73,37 @@ router.get('/team', authenticate, requireRole('FARM_ADMIN', 'MANAGER'), async (r
 // GET /users/invites — List pending invites (FARM_ADMIN only)
 router.get('/invites', authenticate, requireRole('FARM_ADMIN'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const invites = await prisma.invite.findMany({
-      where: {
-        invitedById: req.user!.userId,
-        status: 'pending',
-      },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        type: true,
-        token: true,
-        expiresAt: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const { page, limit, skip } = parsePagination(req.query);
+    const where = {
+      invitedById: req.user!.userId,
+      status: 'pending',
+    };
+
+    const [invites, totalItems] = await Promise.all([
+      prisma.invite.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          type: true,
+          token: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.invite.count({ where }),
+    ]);
 
     const invitesWithLinks = invites.map((inv) => ({
       ...inv,
       link: `${FRONTEND_URL}/accept-invite?token=${inv.token}`,
     }));
 
-    res.json({ invites: invitesWithLinks });
+    res.json({ invites: invitesWithLinks, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List invites error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list invites' } });

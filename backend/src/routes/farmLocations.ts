@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { parsePagination, paginationMeta } from '../utils/pagination';
 
 const router = Router();
 
@@ -18,15 +19,23 @@ const createSchema = z.object({
 // GET /farm-locations - list farm locations for current org
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const locations = await prisma.farmLocation.findMany({
-      where: { organizationId: req.user!.organizationId },
-      include: {
-        _count: { select: { listings: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
+    const { page, limit, skip } = parsePagination(req.query);
+    const where = { organizationId: req.user!.organizationId };
 
-    res.json({ farmLocations: locations });
+    const [locations, totalItems] = await Promise.all([
+      prisma.farmLocation.findMany({
+        where,
+        include: {
+          _count: { select: { listings: true } },
+        },
+        orderBy: { name: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.farmLocation.count({ where }),
+    ]);
+
+    res.json({ farmLocations: locations, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List farm locations error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list farm locations' } });

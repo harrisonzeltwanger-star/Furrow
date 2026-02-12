@@ -3,6 +3,8 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
+import { parsePagination, paginationMeta } from '../utils/pagination';
+import { autoGenerateInvoice } from '../services/invoiceService';
 
 const router = Router();
 
@@ -212,39 +214,49 @@ router.get('/dashboard-stats', async (req: AuthRequest, res: Response): Promise<
 router.get('/loads', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const orgId = req.user!.organizationId;
+    const { page, limit, skip } = parsePagination(req.query);
 
-    const loads = await prisma.load.findMany({
-      where: {
-        po: {
-          OR: [{ buyerOrgId: orgId }, { growerOrgId: orgId }],
+    const where = {
+      po: {
+        OR: [{ buyerOrgId: orgId }, { growerOrgId: orgId }],
+      },
+    };
+
+    const loadIncludes = {
+      po: {
+        select: {
+          id: true,
+          poNumber: true,
+          pricePerTon: true,
+          center: true,
+          buyerOrg: { select: { id: true, name: true } },
+          growerOrg: { select: { id: true, name: true } },
         },
       },
-      include: {
-        po: {
-          select: {
-            id: true,
-            poNumber: true,
-            pricePerTon: true,
-            center: true,
-            buyerOrg: { select: { id: true, name: true } },
-            growerOrg: { select: { id: true, name: true } },
-          },
+      listing: {
+        select: {
+          id: true,
+          stackId: true,
+          productType: true,
+          baleType: true,
+          organization: { select: { id: true, name: true } },
         },
-        listing: {
-          select: {
-            id: true,
-            stackId: true,
-            productType: true,
-            baleType: true,
-            organization: { select: { id: true, name: true } },
-          },
-        },
-        barn: { select: { id: true, name: true } },
-        feedPad: { select: { id: true, name: true } },
-        enteredBy: { select: { id: true, name: true } },
       },
-      orderBy: { deliveryDatetime: 'desc' },
-    });
+      barn: { select: { id: true, name: true } },
+      feedPad: { select: { id: true, name: true } },
+      enteredBy: { select: { id: true, name: true } },
+    };
+
+    const [loads, totalItems] = await Promise.all([
+      prisma.load.findMany({
+        where,
+        include: loadIncludes,
+        orderBy: { deliveryDatetime: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.load.count({ where }),
+    ]);
 
     const enriched = loads.map((l) => {
       const netWeight = (l.grossWeight ?? 0) - (l.tareWeight ?? 0);
@@ -256,7 +268,7 @@ router.get('/loads', async (req: AuthRequest, res: Response): Promise<void> => {
       };
     });
 
-    res.json({ loads: enriched });
+    res.json({ loads: enriched, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List all loads error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list loads' } });
@@ -384,18 +396,26 @@ router.post('/accept-listing', requireRole('FARM_ADMIN'), async (req: AuthReques
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const orgId = req.user!.organizationId;
+    const { page, limit, skip } = parsePagination(req.query);
 
-    const purchaseOrders = await prisma.purchaseOrder.findMany({
-      where: {
-        OR: [{ buyerOrgId: orgId }, { growerOrgId: orgId }],
-      },
-      include: poIncludes,
-      orderBy: { createdAt: 'desc' },
-    });
+    const where = {
+      OR: [{ buyerOrgId: orgId }, { growerOrgId: orgId }],
+    };
+
+    const [purchaseOrders, totalItems] = await Promise.all([
+      prisma.purchaseOrder.findMany({
+        where,
+        include: poIncludes,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.purchaseOrder.count({ where }),
+    ]);
 
     const redacted = purchaseOrders.map((po) => redactPoNumber(po as unknown as Record<string, unknown>));
 
-    res.json({ purchaseOrders: redacted });
+    res.json({ purchaseOrders: redacted, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List purchase orders error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list purchase orders' } });
@@ -644,6 +664,13 @@ router.post('/:id/close', requireRole('FARM_ADMIN'), async (req: AuthRequest, re
 
       return result;
     });
+
+    // Auto-generate invoice (non-blocking — failure doesn't roll back PO close)
+    try {
+      await autoGenerateInvoice(po.id);
+    } catch (invoiceError) {
+      console.error('Auto-generate invoice failed (PO still closed):', invoiceError);
+    }
 
     res.json(updated);
   } catch (error) {
