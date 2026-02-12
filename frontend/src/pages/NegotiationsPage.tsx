@@ -318,8 +318,14 @@ export default function NegotiationsPage() {
               </Card>
             ) : threadLoading ? (
               <Card>
-                <CardContent className="py-16 text-center text-muted-foreground">
-                  Loading...
+                <CardContent className="py-8 space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center gap-4">
+                      <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
+                      <div className="h-4 w-24 bg-gray-200 rounded animate-pulse" />
+                      <div className="h-4 w-20 bg-gray-200 rounded animate-pulse ml-auto" />
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             ) : (

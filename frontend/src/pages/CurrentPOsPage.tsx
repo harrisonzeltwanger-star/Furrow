@@ -590,7 +590,11 @@ export default function CurrentPOsPage() {
                 {isExpanded && (
                   <div className="border-t border-border">
                     {isLoading ? (
-                      <div className="px-5 py-8 text-center text-muted-foreground">Loading...</div>
+                      <div className="px-5 py-8 space-y-3">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-4 bg-gray-200 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />
+                        ))}
+                      </div>
                     ) : po ? (
                       <div className="px-5 py-4 space-y-5">
                         {/* Center + Hay Class assignment banner */}

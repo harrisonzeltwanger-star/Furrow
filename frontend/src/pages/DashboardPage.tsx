@@ -197,7 +197,14 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent className="pt-0">
           {loading ? (
-            <p className="text-sm text-muted-foreground py-4">Loading...</p>
+            <div className="space-y-3 py-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex justify-between items-center">
+                  <div className="h-4 w-24 bg-gray-200 rounded animate-pulse" />
+                  <div className="h-4 w-16 bg-gray-200 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
           ) : !stats?.avgPriceByProduct || stats.avgPriceByProduct.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No contract data for this period.</p>
           ) : (

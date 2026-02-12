@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { PageSkeleton } from '@/components/ui/skeleton';
 
 interface TeamMember {
   id: string;
@@ -136,7 +137,7 @@ export default function AccountPage() {
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-8">
-        <p className="text-muted-foreground">Loading...</p>
+        <PageSkeleton />
       </div>
     );
   }
