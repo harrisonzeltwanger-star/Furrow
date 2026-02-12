@@ -1,0 +1,12 @@
+{
+  "name": "furrow",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build && cd ../backend && npm install && npx prisma generate && npm run build",
+    "start": "cd backend && node dist/server.js",
+    "seed": "cd backend && npx ts-node prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

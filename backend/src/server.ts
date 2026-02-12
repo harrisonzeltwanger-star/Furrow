@@ -42,12 +42,21 @@ app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/purchase-orders', purchaseOrdersRouter);
 app.use('/api/v1/users', usersRouter);
 
-// 404 handler
-app.use((_req, res) => {
-  res.status(404).json({
-    error: { code: 'NOT_FOUND', message: 'Endpoint not found' },
+// Serve frontend in production
+if (process.env.NODE_ENV === 'production') {
+  const frontendPath = path.join(__dirname, '../../frontend/dist');
+  app.use(express.static(frontendPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
   });
-});
+} else {
+  // 404 handler (dev only — frontend is separate dev server)
+  app.use((_req, res) => {
+    res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Endpoint not found' },
+    });
+  });
+}
 
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
