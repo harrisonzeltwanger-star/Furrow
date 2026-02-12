@@ -4,9 +4,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import ContractReviewDialog, { type ContractDetails } from '@/components/ContractReviewDialog';
 
 interface NegotiationMessage {
   id: string;
@@ -28,8 +28,12 @@ interface NegotiationMessage {
     stackId: string;
     pricePerTon: number;
     productType?: string;
+    baleType?: string;
     estimatedTons?: number;
     status: string;
+    isDeliveredPrice?: boolean;
+    truckingCoordinatedBy?: string;
+    farmLocation?: { name: string };
   };
   buyerOrg: { id: string; name: string };
   growerOrg: { id: string; name: string };
@@ -39,11 +43,10 @@ interface NegotiationThread extends NegotiationMessage {
   replies: Array<NegotiationMessage & { offeredByUser: { id: string; name: string } }>;
 }
 
-const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  pending: 'outline',
-  accepted: 'default',
-  rejected: 'destructive',
-  countered: 'secondary',
+const statusStyles: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-800',
+  countered: 'bg-blue-100 text-blue-800',
+  rejected: 'bg-red-100 text-red-800',
 };
 
 export default function NegotiationsPage() {
@@ -53,7 +56,6 @@ export default function NegotiationsPage() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threadMessages, setThreadMessages] = useState<NegotiationMessage[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('');
 
   // Counter form
   const [showCounter, setShowCounter] = useState(false);
@@ -61,14 +63,20 @@ export default function NegotiationsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
 
+  // Filter: 'all' | 'yours' | 'theirs'
+  const [responseFilter, setResponseFilter] = useState<'all' | 'yours' | 'theirs'>('all');
+
   const orgId = user?.organizationId;
 
   const fetchThreads = async () => {
     try {
-      const params: Record<string, string> = {};
-      if (statusFilter) params.status = statusFilter;
-      const { data } = await api.get('/negotiations', { params });
-      setThreads(data.negotiations);
+      const { data } = await api.get('/negotiations');
+      // Only show non-accepted negotiations (accepted ones move to Active POs)
+      const active = (data.negotiations as NegotiationThread[]).filter((t) => {
+        const latest = t.replies.length > 0 ? t.replies[0] : t;
+        return latest.status !== 'accepted';
+      });
+      setThreads(active);
     } catch {
       console.error('Failed to fetch negotiations');
     } finally {
@@ -78,7 +86,7 @@ export default function NegotiationsPage() {
 
   useEffect(() => {
     fetchThreads();
-  }, [statusFilter]);
+  }, []);
 
   const fetchThread = async (id: string) => {
     setThreadLoading(true);
@@ -99,12 +107,11 @@ export default function NegotiationsPage() {
     fetchThread(id);
   };
 
-  // Find the latest pending message in the current thread
   const latestPending = threadMessages.length > 0
     ? threadMessages.filter((m) => m.status === 'pending').slice(-1)[0]
     : null;
 
-  // Can the current user act? Only if they are the receiving org (not the one who made the offer)
+  const isAdmin = user?.role === 'FARM_ADMIN';
   const canAct = latestPending && latestPending.offeredByOrgId !== orgId;
 
   const handleCounter = async (e: React.FormEvent) => {
@@ -130,20 +137,41 @@ export default function NegotiationsPage() {
     }
   };
 
-  const handleAccept = async () => {
+  // Contract review dialog state
+  const [showContractReview, setShowContractReview] = useState(false);
+
+  const acceptContractDetails: ContractDetails | null = latestPending && threadMessages.length > 0 ? {
+    stackId: threadMessages[0].listing.stackId,
+    productType: threadMessages[0].listing.productType,
+    baleType: threadMessages[0].listing.baleType,
+    buyerName: threadMessages[0].buyerOrg.name,
+    growerName: threadMessages[0].growerOrg.name,
+    pricePerTon: latestPending.offeredPricePerTon,
+    tons: latestPending.offeredTons ?? threadMessages[0].listing.estimatedTons ?? 0,
+    isDeliveredPrice: threadMessages[0].listing.isDeliveredPrice,
+    truckingCoordinatedBy: threadMessages[0].listing.truckingCoordinatedBy,
+    farmLocationName: threadMessages[0].listing.farmLocation?.name,
+  } : null;
+
+  const handleAcceptClick = () => {
+    setShowContractReview(true);
+  };
+
+  const handleAcceptAndSign = async (typedName: string, signatureImage?: string) => {
     if (!latestPending) return;
-    setActionLoading(true);
-    setActionError('');
-    try {
-      await api.post(`/negotiations/${latestPending.id}/accept`);
-      await fetchThread(selectedThreadId!);
-      await fetchThreads();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-      setActionError(axiosErr.response?.data?.error?.message || 'Failed to accept');
-    } finally {
-      setActionLoading(false);
+    // Accept the negotiation → creates DRAFT PO
+    const { data } = await api.post(`/negotiations/${latestPending.id}/accept`);
+    const poId = data.purchaseOrder?.id;
+
+    // Sign the PO immediately
+    if (poId) {
+      await api.post(`/purchase-orders/${poId}/sign`, { typedName, signatureImage });
     }
+
+    setShowContractReview(false);
+    setSelectedThreadId(null);
+    setThreadMessages([]);
+    await fetchThreads();
   };
 
   const handleReject = async () => {
@@ -162,12 +190,12 @@ export default function NegotiationsPage() {
     }
   };
 
-  // Determine latest status & price for a thread
   function threadSummary(t: NegotiationThread) {
     const latest = t.replies.length > 0 ? t.replies[0] : t;
     return {
       latestStatus: latest.status,
       latestPrice: latest.offeredPricePerTon,
+      latestTons: latest.offeredTons,
       latestBy: latest.offeredByUser.name,
     };
   }
@@ -182,192 +210,230 @@ export default function NegotiationsPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6">
         <h2 className="text-2xl font-semibold">Negotiations</h2>
-        <div className="flex items-center gap-2">
-          {['', 'pending', 'accepted', 'rejected'].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                statusFilter === s
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-            >
-              {s === '' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          Active offers and counter-offers. Accepted deals move to Active POs.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Thread list */}
-        <div className="lg:col-span-1 space-y-2 max-h-[calc(100vh-12rem)] overflow-y-auto">
-          {threads.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                No negotiations found.
-              </CardContent>
-            </Card>
-          ) : (
-            threads.map((t) => {
+      {/* Filter buttons */}
+      {threads.length > 0 && (
+        <div className="flex gap-1 mb-4">
+          {(['all', 'theirs', 'yours'] as const).map((f) => {
+            const label = f === 'all' ? 'All' : f === 'theirs' ? 'Waiting for Your Response' : 'Waiting for Their Response';
+            const count = f === 'all' ? threads.length : threads.filter((t) => {
+              const latest = t.replies.length > 0 ? t.replies[0] : t;
+              const theyOffered = latest.offeredByOrgId !== orgId;
+              return f === 'theirs' ? theyOffered : !theyOffered;
+            }).length;
+            return (
+              <Button
+                key={f}
+                size="sm"
+                variant={responseFilter === f ? 'default' : 'outline'}
+                onClick={() => setResponseFilter(f)}
+              >
+                {label} ({count})
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
+      {threads.length === 0 && !selectedThreadId ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <p className="text-muted-foreground text-lg mb-2">No active negotiations</p>
+            <p className="text-sm text-muted-foreground">
+              Make an offer on a listing to start negotiating.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Thread list */}
+          <div className="lg:col-span-1 space-y-2 max-h-[calc(100vh-14rem)] overflow-y-auto pr-1">
+            {threads.filter((t) => {
+              if (responseFilter === 'all') return true;
+              const latest = t.replies.length > 0 ? t.replies[0] : t;
+              const theyOffered = latest.offeredByOrgId !== orgId;
+              return responseFilter === 'theirs' ? theyOffered : !theyOffered;
+            }).map((t) => {
               const summary = threadSummary(t);
               const counterparty = t.buyerOrgId === orgId ? t.growerOrg.name : t.buyerOrg.name;
+              const isWaiting = t.replies.length > 0
+                ? t.replies[0].offeredByOrgId === orgId
+                : t.offeredByOrgId === orgId;
               return (
                 <Card
                   key={t.id}
-                  className={`cursor-pointer transition-shadow hover:shadow-md ${
-                    selectedThreadId === t.id ? 'ring-2 ring-primary' : ''
+                  className={`cursor-pointer transition-all hover:shadow-md ${
+                    selectedThreadId === t.id ? 'ring-2 ring-primary shadow-md' : ''
                   }`}
                   onClick={() => selectThread(t.id)}
                 >
-                  <CardContent className="py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="font-semibold text-sm truncate">{t.listing.stackId}</span>
-                          <Badge variant={statusVariant[summary.latestStatus] || 'outline'} className="text-[10px]">
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-sm">{t.listing.productType || counterparty}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusStyles[summary.latestStatus] || 'bg-gray-100 text-gray-700'}`}>
                             {summary.latestStatus}
-                          </Badge>
+                          </span>
                         </div>
                         <div className="text-xs text-muted-foreground truncate">
                           {counterparty}
-                          {t.listing.productType && ` — ${t.listing.productType}`}
                         </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          Last by {summary.latestBy}
+                        {t.listing.productType && (
+                          <div className="text-xs text-muted-foreground truncate">
+                            {t.listing.productType}
+                          </div>
+                        )}
+                        <div className="text-[10px] text-muted-foreground mt-1">
+                          {isWaiting ? 'Waiting for response...' : 'Action needed'}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-sm font-semibold text-earth-brown">${summary.latestPrice}</div>
+                        <div className="font-semibold">${summary.latestPrice}</div>
                         <div className="text-[10px] text-muted-foreground">per ton</div>
+                        {summary.latestTons && (
+                          <div className="text-[10px] text-muted-foreground">{summary.latestTons} tons</div>
+                        )}
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
 
-        {/* Right: Thread detail */}
-        <div className="lg:col-span-2">
-          {!selectedThreadId ? (
-            <Card>
-              <CardContent className="py-16 text-center text-muted-foreground">
-                Select a negotiation to view details
-              </CardContent>
-            </Card>
-          ) : threadLoading ? (
-            <Card>
-              <CardContent className="py-16 text-center text-muted-foreground">
-                Loading thread...
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {/* Thread header */}
-              {threadMessages.length > 0 && (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold">{threadMessages[0].listing.stackId}</h3>
-                    <div className="text-sm text-muted-foreground">
-                      {threadMessages[0].buyerOrg.name} &harr; {threadMessages[0].growerOrg.name}
-                      {threadMessages[0].listing.productType && ` — ${threadMessages[0].listing.productType}`}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Listed at ${threadMessages[0].listing.pricePerTon}/ton
-                      {threadMessages[0].listing.estimatedTons && ` — ${threadMessages[0].listing.estimatedTons} tons est.`}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Chat bubble timeline */}
+          {/* Thread detail */}
+          <div className="lg:col-span-2">
+            {!selectedThreadId ? (
               <Card>
-                <CardContent className="py-4 space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto">
-                  {threadMessages.map((msg) => {
-                    const isOwn = msg.offeredByOrgId === orgId;
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                            isOwn
-                              ? 'bg-primary/10 border border-primary/20'
-                              : 'bg-muted border border-border'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-medium">
-                              {msg.offeredByUser.name}
-                            </span>
-                            <Badge variant={statusVariant[msg.status] || 'outline'} className="text-[10px]">
-                              {msg.status}
-                            </Badge>
-                          </div>
-                          <div className="text-sm font-semibold">
-                            ${msg.offeredPricePerTon}/ton
-                            {msg.offeredTons != null && ` — ${msg.offeredTons} tons`}
-                          </div>
-                          {msg.message && (
-                            <p className="text-sm text-muted-foreground mt-1">{msg.message}</p>
-                          )}
-                          <div className="text-[10px] text-muted-foreground mt-1">
-                            {new Date(msg.createdAt).toLocaleString()}
-                          </div>
-                          {msg.status === 'accepted' && msg.purchaseOrderId && (
-                            <div className="text-xs text-primary mt-1 font-medium">
-                              PO created
-                            </div>
+                <CardContent className="py-16 text-center text-muted-foreground">
+                  Select a negotiation to view the conversation
+                </CardContent>
+              </Card>
+            ) : threadLoading ? (
+              <Card>
+                <CardContent className="py-16 text-center text-muted-foreground">
+                  Loading...
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {/* Thread header */}
+                {threadMessages.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-lg">
+                            {threadMessages[0].listing.productType || 'Negotiation'}
+                            {threadMessages[0].listing.baleType && (
+                              <span className="text-muted-foreground font-normal text-sm ml-2">
+                                {threadMessages[0].listing.baleType}
+                              </span>
+                            )}
+                          </CardTitle>
+                          <CardDescription>
+                            {threadMessages[0].buyerOrg.name} &harr; {threadMessages[0].growerOrg.name}
+                          </CardDescription>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm text-muted-foreground">Listed at</div>
+                          <div className="font-semibold">${threadMessages[0].listing.pricePerTon}/ton</div>
+                          {threadMessages[0].listing.estimatedTons && (
+                            <div className="text-xs text-muted-foreground">{threadMessages[0].listing.estimatedTons} tons est.</div>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
+                    </CardHeader>
+                  </Card>
+                )}
 
-              {/* Action bar */}
-              {actionError && (
-                <div className="rounded-md bg-destructive/10 text-destructive px-4 py-3 text-sm">{actionError}</div>
-              )}
+                {/* Message timeline */}
+                <Card>
+                  <CardContent className="py-4 space-y-3 max-h-[calc(100vh-28rem)] overflow-y-auto">
+                    {threadMessages.map((msg) => {
+                      const isOwn = msg.offeredByOrgId === orgId;
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div
+                            className={`max-w-[75%] rounded-xl px-4 py-3 ${
+                              isOwn
+                                ? 'bg-primary/10 border border-primary/20'
+                                : 'bg-muted border border-border'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium">{msg.offeredByUser.name}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusStyles[msg.status] || 'bg-gray-100 text-gray-700'}`}>
+                                {msg.status}
+                              </span>
+                            </div>
+                            <div className="text-sm font-semibold">
+                              ${msg.offeredPricePerTon}/ton
+                              {msg.offeredTons != null && (
+                                <span className="font-normal text-muted-foreground"> for {msg.offeredTons} tons</span>
+                              )}
+                            </div>
+                            {msg.message && (
+                              <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{msg.message}</p>
+                            )}
+                            <div className="text-[10px] text-muted-foreground mt-2">
+                              {new Date(msg.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
 
-              {canAct && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Button onClick={handleAccept} disabled={actionLoading}>
-                      {actionLoading ? 'Processing...' : 'Accept'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setCounterForm({
-                          pricePerTon: String(latestPending.offeredPricePerTon),
-                          tons: latestPending.offeredTons != null ? String(latestPending.offeredTons) : '',
-                          message: '',
-                        });
-                        setShowCounter(!showCounter);
-                      }}
-                      disabled={actionLoading}
-                    >
-                      Counter
-                    </Button>
-                    <Button variant="destructive" onClick={handleReject} disabled={actionLoading}>
-                      Reject
-                    </Button>
-                  </div>
+                {/* Action bar */}
+                {actionError && (
+                  <div className="rounded-md bg-destructive/10 text-destructive px-4 py-3 text-sm">{actionError}</div>
+                )}
 
-                  {showCounter && (
-                    <Card>
-                      <CardContent className="py-4">
-                        <form onSubmit={handleCounter} className="space-y-3">
+                {canAct && (
+                  <Card>
+                    <CardContent className="py-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        {isAdmin && (
+                          <Button onClick={handleAcceptClick} disabled={actionLoading}>
+                            Accept Offer
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setCounterForm({
+                              pricePerTon: String(latestPending.offeredPricePerTon),
+                              tons: latestPending.offeredTons != null ? String(latestPending.offeredTons) : '',
+                              message: '',
+                            });
+                            setShowCounter(!showCounter);
+                          }}
+                          disabled={actionLoading}
+                        >
+                          Counter Offer
+                        </Button>
+                        <Button variant="destructive" onClick={handleReject} disabled={actionLoading}>
+                          Reject
+                        </Button>
+                      </div>
+
+                      {showCounter && (
+                        <form onSubmit={handleCounter} className="space-y-3 pt-3 border-t border-border">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-1">
-                              <Label className="text-xs">Counter Price per Ton ($)</Label>
+                              <Label className="text-xs">Counter Price ($/ton)</Label>
                               <Input
                                 type="number"
                                 step="0.01"
@@ -404,22 +470,31 @@ export default function NegotiationsPage() {
                             </Button>
                           </div>
                         </form>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              )}
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
-              {/* Info when waiting for counterparty */}
-              {latestPending && latestPending.offeredByOrgId === orgId && (
-                <div className="text-sm text-muted-foreground bg-muted/50 rounded-md px-4 py-3">
-                  Waiting for counterparty to respond...
-                </div>
-              )}
-            </div>
-          )}
+                {latestPending && latestPending.offeredByOrgId === orgId && (
+                  <Card>
+                    <CardContent className="py-4 text-center">
+                      <p className="text-sm text-muted-foreground">Waiting for counterparty to respond...</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Contract Review Dialog for accepting offers */}
+      <ContractReviewDialog
+        open={showContractReview}
+        onClose={() => setShowContractReview(false)}
+        details={acceptContractDetails}
+        onSign={handleAcceptAndSign}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, LayersControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '@/services/api';
@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
+import ContractReviewDialog, { type ContractDetails } from '@/components/ContractReviewDialog';
 
 // Fix default Leaflet marker icons
 const defaultIcon = L.icon({
@@ -28,6 +29,7 @@ interface FarmLocation {
   id: string;
   name: string;
   address?: string;
+  state?: string;
   latitude?: number;
   longitude?: number;
 }
@@ -36,6 +38,7 @@ interface Listing {
   id: string;
   stackId: string;
   productType?: string;
+  baleType?: string;
   pricePerTon: number;
   estimatedTons?: number;
   baleCount?: number;
@@ -46,15 +49,55 @@ interface Listing {
   truckingCoordinatedBy?: string;
   notes?: string;
   createdAt: string;
+  distanceMiles?: number;
   farmLocation: FarmLocation;
   organization: { id: string; name: string };
   photos: Array<{ id: string; fileUrl: string }>;
   documents: Array<{ id: string; fileUrl: string; documentType?: string }>;
 }
 
+const US_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+  'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+  'VA','WA','WV','WI','WY',
+];
+
+const RADIUS_OPTIONS = [25, 50, 100, 250, 500];
+
+const HAY_PRODUCTS = [
+  'Alfalfa Hay',
+  'Bermuda Hay',
+  'Brome Hay',
+  'Coastal Hay',
+  'Fescue Hay',
+  'Grass Hay',
+  'Mixed Grass Hay',
+  'Oat Hay',
+  'Orchard Grass Hay',
+  'Prairie Hay',
+  'Sudan Grass Hay',
+  'Timothy Hay',
+  'Teff Hay',
+  'Triticale Hay',
+  'Alfalfa/Grass Mix',
+  'Wheat Straw',
+  'Barley Straw',
+  'Oat Straw',
+  'Rice Straw',
+  'Corn Stover',
+];
+
+const BALE_TYPES = [
+  'Large Square',
+  'Small Square',
+  'Round Bale',
+];
+
 interface CreateListingForm {
   farmLocationId: string;
   productType: string;
+  baleType: string;
   pricePerTon: string;
   estimatedTons: string;
   baleCount: string;
@@ -68,6 +111,7 @@ interface CreateListingForm {
 const emptyForm: CreateListingForm = {
   farmLocationId: '',
   productType: '',
+  baleType: '',
   pricePerTon: '',
   estimatedTons: '',
   baleCount: '',
@@ -77,6 +121,18 @@ const emptyForm: CreateListingForm = {
   isDeliveredPrice: false,
   truckingCoordinatedBy: '',
 };
+
+function FitBounds({ markers }: { markers: Listing[] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (markers.length === 0) return;
+    const bounds = L.latLngBounds(
+      markers.map((l) => [l.farmLocation.latitude!, l.farmLocation.longitude!] as [number, number])
+    );
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  }, [markers, map]);
+  return null;
+}
 
 export default function ListingsPage() {
   const { user } = useAuth();
@@ -88,6 +144,16 @@ export default function ListingsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [productTypeFilter, setProductTypeFilter] = useState('');
+  const [minPriceFilter, setMinPriceFilter] = useState('');
+  const [maxPriceFilter, setMaxPriceFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
+  const [searchAddress, setSearchAddress] = useState('');
+  const [searchLat, setSearchLat] = useState<number | null>(null);
+  const [searchLng, setSearchLng] = useState<number | null>(null);
+  const [radiusFilter, setRadiusFilter] = useState('100');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showMap, setShowMap] = useState(true);
   const [selectedListing, setSelectedListing] = useState<string | null>(null);
 
   // File uploads for new listing
@@ -102,7 +168,36 @@ export default function ListingsPage() {
   const [offerSubmitting, setOfferSubmitting] = useState(false);
   const [offerError, setOfferError] = useState('');
 
+  // Accept offer → contract review dialog
+  const [acceptListing, setAcceptListing] = useState<Listing | null>(null);
+
   const isBuyer = user?.organizationType === 'BUYER';
+
+  const contractDetails: ContractDetails | null = acceptListing ? {
+    stackId: acceptListing.stackId,
+    productType: acceptListing.productType,
+    baleType: acceptListing.baleType,
+    buyerName: user?.organizationName ?? '',
+    growerName: acceptListing.organization.name,
+    pricePerTon: acceptListing.pricePerTon,
+    tons: acceptListing.estimatedTons ?? 0,
+    moisturePercent: acceptListing.moisturePercent,
+    notes: acceptListing.notes,
+    isDeliveredPrice: acceptListing.isDeliveredPrice,
+    truckingCoordinatedBy: acceptListing.truckingCoordinatedBy,
+    farmLocationName: acceptListing.farmLocation.name,
+  } : null;
+
+  const handleAcceptAndSign = async (typedName: string, signatureImage?: string) => {
+    if (!acceptListing) return;
+    await api.post('/purchase-orders/accept-listing', {
+      listingId: acceptListing.id,
+      typedName,
+      signatureImage,
+    });
+    setAcceptListing(null);
+    fetchData();
+  };
 
   const handleMakeOffer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,10 +225,27 @@ export default function ListingsPage() {
   const [showNewLocation, setShowNewLocation] = useState(false);
   const [newLocation, setNewLocation] = useState({ name: '', address: '', latitude: 0, longitude: 0 });
 
-  const fetchData = async () => {
+  const fetchData = async (overrideParams?: Record<string, string>) => {
     try {
+      let params: Record<string, string>;
+      if (overrideParams) {
+        params = overrideParams;
+      } else {
+        params = {};
+        if (statusFilter) params.status = statusFilter;
+        if (productTypeFilter) params.productType = productTypeFilter;
+        if (minPriceFilter) params.minPrice = minPriceFilter;
+        if (maxPriceFilter) params.maxPrice = maxPriceFilter;
+        if (stateFilter) params.state = stateFilter;
+        if (searchLat != null && searchLng != null) {
+          params.centerLat = String(searchLat);
+          params.centerLng = String(searchLng);
+          params.radiusMiles = radiusFilter || '100';
+        }
+      }
+
       const [listingsRes, locationsRes] = await Promise.all([
-        api.get('/listings', { params: statusFilter ? { status: statusFilter } : {} }),
+        api.get('/listings', { params }),
         api.get('/farm-locations'),
       ]);
       setListings(listingsRes.data.listings);
@@ -147,7 +259,7 @@ export default function ListingsPage() {
 
   useEffect(() => {
     fetchData();
-  }, [statusFilter]);
+  }, []);
 
   const handleCreateListing = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,6 +269,7 @@ export default function ListingsPage() {
       const res = await api.post('/listings', {
         farmLocationId: form.farmLocationId,
         productType: form.productType || undefined,
+        baleType: form.baleType || undefined,
         pricePerTon: parseFloat(form.pricePerTon),
         estimatedTons: form.estimatedTons ? parseFloat(form.estimatedTons) : undefined,
         baleCount: form.baleCount ? parseInt(form.baleCount, 10) : undefined,
@@ -243,19 +356,15 @@ export default function ListingsPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-semibold">Listings</h2>
         <div className="flex items-center gap-3">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
-          >
-            <option value="">All statuses</option>
-            <option value="available">Available</option>
-            <option value="under_contract">Under Contract</option>
-            <option value="depleted">Depleted</option>
-          </select>
+          <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
+            {showFilters ? 'Hide Filters' : 'Filters'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowMap(!showMap)}>
+            {showMap ? 'Hide Map' : 'Show Map'}
+          </Button>
           {user?.role !== 'VIEWER' && (
             <Button onClick={() => setShowCreate(!showCreate)}>
               {showCreate ? 'Cancel' : 'New Listing'}
@@ -263,6 +372,124 @@ export default function ListingsPage() {
           )}
         </div>
       </div>
+
+      {/* Filter bar */}
+      {showFilters && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {/* Location search */}
+              <div className="space-y-1">
+                <Label className="text-xs">Search near address</Label>
+                <AddressAutocomplete
+                  value={searchAddress}
+                  onChange={(address, lat, lng) => {
+                    setSearchAddress(address);
+                    if (lat != null && lng != null) {
+                      setSearchLat(lat);
+                      setSearchLng(lng);
+                    }
+                  }}
+                  placeholder="Type address for radius search..."
+                />
+              </div>
+
+              {/* Radius */}
+              <div className="space-y-1">
+                <Label className="text-xs">Radius (miles)</Label>
+                <select
+                  value={radiusFilter}
+                  onChange={(e) => setRadiusFilter(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                >
+                  {RADIUS_OPTIONS.map((r) => (
+                    <option key={r} value={String(r)}>{r} mi</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* State */}
+              <div className="space-y-1">
+                <Label className="text-xs">State</Label>
+                <select
+                  value={stateFilter}
+                  onChange={(e) => setStateFilter(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                >
+                  <option value="">Any state</option>
+                  {US_STATES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Price range */}
+              <div className="space-y-1">
+                <Label className="text-xs">Price range ($/ton)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="1"
+                    placeholder="Min"
+                    value={minPriceFilter}
+                    onChange={(e) => setMinPriceFilter(e.target.value)}
+                    className="h-9"
+                  />
+                  <Input
+                    type="number"
+                    step="1"
+                    placeholder="Max"
+                    value={maxPriceFilter}
+                    onChange={(e) => setMaxPriceFilter(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              {/* Crop / Product type */}
+              <div className="space-y-1">
+                <Label className="text-xs">Crop / Product type</Label>
+                <input
+                  list="filter-product-type-list"
+                  value={productTypeFilter}
+                  onChange={(e) => setProductTypeFilter(e.target.value)}
+                  placeholder="Alfalfa, Bermuda..."
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                />
+                <datalist id="filter-product-type-list">
+                  {HAY_PRODUCTS.map((p) => <option key={p} value={p} />)}
+                </datalist>
+              </div>
+
+              {/* Search + Clear buttons */}
+              <div className="flex items-end gap-2">
+                <Button size="sm" onClick={() => { setLoading(true); fetchData(); }}>
+                  Search
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setStatusFilter('');
+                    setProductTypeFilter('');
+                    setMinPriceFilter('');
+                    setMaxPriceFilter('');
+                    setStateFilter('');
+                    setSearchAddress('');
+                    setSearchLat(null);
+                    setSearchLng(null);
+                    setRadiusFilter('100');
+                    setLoading(true);
+                    fetchData({});
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Create listing form */}
       {showCreate && (
@@ -297,7 +524,29 @@ export default function ListingsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Product Type</Label>
-                <Input value={form.productType} onChange={(e) => setForm({ ...form, productType: e.target.value })} placeholder="Alfalfa, Bermuda, etc." />
+                <input
+                  list="product-type-list"
+                  value={form.productType}
+                  onChange={(e) => setForm({ ...form, productType: e.target.value })}
+                  placeholder="Search hay/straw type..."
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                />
+                <datalist id="product-type-list">
+                  {HAY_PRODUCTS.map((p) => <option key={p} value={p} />)}
+                </datalist>
+              </div>
+              <div className="space-y-2">
+                <Label>Bale Type</Label>
+                <input
+                  list="bale-type-list"
+                  value={form.baleType}
+                  onChange={(e) => setForm({ ...form, baleType: e.target.value })}
+                  placeholder="Search bale type..."
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                />
+                <datalist id="bale-type-list">
+                  {BALE_TYPES.map((b) => <option key={b} value={b} />)}
+                </datalist>
               </div>
               <div className="space-y-2">
                 <Label>Price per Ton ($)</Label>
@@ -478,11 +727,12 @@ export default function ListingsPage() {
       )}
 
       {/* Map + List split view */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={`grid grid-cols-1 ${showMap && !acceptListing && !offerListing ? 'lg:grid-cols-2' : ''} gap-6`}>
         {/* Map */}
-        <Card className="overflow-hidden">
+        {showMap && !acceptListing && !offerListing && <Card className="overflow-hidden">
           <div className="h-[500px]">
             <MapContainer center={mapCenter} zoom={5} style={{ height: '100%', width: '100%' }}>
+              <FitBounds markers={markers} />
               <LayersControl position="topright">
                 <LayersControl.BaseLayer checked name="Street">
                   <TileLayer
@@ -507,30 +757,52 @@ export default function ListingsPage() {
                 >
                   <Popup>
                     <div className="text-sm">
-                      <strong>{listing.stackId}</strong>
+                      <strong>{listing.productType || listing.organization.name}</strong>
+                      {listing.isDeliveredPrice ? (
+                        <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-800">Delivered</span>
+                      ) : (
+                        <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">Pickup</span>
+                      )}
                       <br />
-                      {listing.productType && <>{listing.productType}<br /></>}
+                      {listing.productType && <>{listing.productType}</>}
+                      {listing.baleType && <>{listing.productType ? ' — ' : ''}{listing.baleType}</>}
+                      {(listing.productType || listing.baleType) && <br />}
                       ${listing.pricePerTon}/ton
-                      {listing.isDeliveredPrice && <span className="text-xs text-gray-500"> (delivered)</span>}
                       <br />
                       {listing.farmLocation.name}
+                      {listing.distanceMiles != null && (
+                        <span className="text-xs text-gray-500"> &middot; {listing.distanceMiles} mi</span>
+                      )}
                       <br />
                       <span className="text-xs text-gray-500">{listing.organization.name}</span>
                       {listing.firmPrice && (
                         <><br /><span className="text-xs font-medium text-gray-500">Firm Price</span></>
                       )}
-                      {!listing.firmPrice && listing.organization.id !== user?.organizationId && listing.status === 'available' && (
-                        <div className="mt-2">
-                          <button
-                            className="px-2 py-1 text-xs font-medium rounded border border-gray-300 hover:bg-gray-100 transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOfferForm({ pricePerTon: String(listing.pricePerTon), tons: listing.estimatedTons ? String(listing.estimatedTons) : '', message: '' });
-                              setOfferListing(listing);
-                            }}
-                          >
-                            Counter Offer
-                          </button>
+                      {listing.organization.id !== user?.organizationId && listing.status === 'available' && (
+                        <div className="mt-2 flex gap-1">
+                          {user?.role === 'FARM_ADMIN' && (
+                            <button
+                              className="px-2 py-1 text-xs font-medium rounded border border-primary bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAcceptListing(listing);
+                              }}
+                            >
+                              Accept Offer
+                            </button>
+                          )}
+                          {!listing.firmPrice && (
+                            <button
+                              className="px-2 py-1 text-xs font-medium rounded border border-gray-300 hover:bg-gray-100 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOfferForm({ pricePerTon: String(listing.pricePerTon), tons: listing.estimatedTons ? String(listing.estimatedTons) : '', message: '' });
+                                setOfferListing(listing);
+                              }}
+                            >
+                              Counter Offer
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -539,7 +811,7 @@ export default function ListingsPage() {
               ))}
             </MapContainer>
           </div>
-        </Card>
+        </Card>}
 
         {/* Listings list */}
         <div className="space-y-3">
@@ -562,31 +834,53 @@ export default function ListingsPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold">{listing.stackId}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[listing.status] || 'bg-muted text-muted-foreground'}`}>
-                          {listing.status.replace('_', ' ')}
-                        </span>
+                        <span className="font-semibold">{listing.productType || listing.organization.name}</span>
+                        {listing.isDeliveredPrice ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-800">Delivered</span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Pickup</span>
+                        )}
                       </div>
-                      {listing.productType && (
-                        <div className="text-sm text-muted-foreground mb-1">{listing.productType}</div>
+                      {(listing.productType || listing.baleType) && (
+                        <div className="text-sm text-muted-foreground mb-1">
+                          {listing.productType}{listing.productType && listing.baleType && ' — '}{listing.baleType}
+                        </div>
                       )}
                       <div className="text-sm text-muted-foreground">
                         {listing.farmLocation.name} &middot; {listing.organization.name}
+                        {listing.distanceMiles != null && (
+                          <span className="ml-1 font-medium text-primary">&middot; {listing.distanceMiles} mi away</span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
-                      {!listing.firmPrice && listing.organization.id !== user?.organizationId && listing.status === 'available' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOfferForm({ pricePerTon: String(listing.pricePerTon), tons: listing.estimatedTons ? String(listing.estimatedTons) : '', message: '' });
-                            setOfferListing(listing);
-                          }}
-                        >
-                          Counter Offer
-                        </Button>
+                      {listing.organization.id !== user?.organizationId && listing.status === 'available' && (
+                        <div className="flex flex-col gap-1">
+                          {user?.role === 'FARM_ADMIN' && (
+                            <Button
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAcceptListing(listing);
+                              }}
+                            >
+                              Accept Offer
+                            </Button>
+                          )}
+                          {!listing.firmPrice && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOfferForm({ pricePerTon: String(listing.pricePerTon), tons: listing.estimatedTons ? String(listing.estimatedTons) : '', message: '' });
+                                setOfferListing(listing);
+                              }}
+                            >
+                              Counter Offer
+                            </Button>
+                          )}
+                        </div>
                       )}
                       <div className="text-right">
                         <div className="text-lg font-semibold text-earth-brown">${listing.pricePerTon}</div>
@@ -677,7 +971,7 @@ export default function ListingsPage() {
           <DialogHeader>
             <DialogTitle>Counter Offer</DialogTitle>
             <DialogDescription>
-              {offerListing && `${offerListing.stackId} — ${offerListing.organization.name} — Listed at $${offerListing.pricePerTon}/ton`}
+              {offerListing && `${offerListing.productType || 'Listing'} — ${offerListing.organization.name} — Listed at $${offerListing.pricePerTon}/ton`}
             </DialogDescription>
           </DialogHeader>
           {offerError && (
@@ -722,6 +1016,14 @@ export default function ListingsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Accept Offer → Contract Review Dialog */}
+      <ContractReviewDialog
+        open={!!acceptListing}
+        onClose={() => setAcceptListing(null)}
+        details={contractDetails}
+        onSign={handleAcceptAndSign}
+      />
     </div>
   );
 }

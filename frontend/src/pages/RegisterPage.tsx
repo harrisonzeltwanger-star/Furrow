@@ -16,7 +16,7 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   phone: z.string().optional(),
   organizationName: z.string().min(1, 'Organization name is required'),
-  organizationType: z.enum(['BUYER', 'GROWER']),
+  organizationType: z.enum(['BUYER', 'GROWER', 'TRUCKING']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword'],
@@ -93,6 +93,7 @@ export default function RegisterPage() {
               >
                 <option value="BUYER">Buyer (Feedlot)</option>
                 <option value="GROWER">Grower (Hay Producer)</option>
+                <option value="TRUCKING">Trucking Company</option>
               </select>
               {errors.organizationType && <p className="text-sm text-destructive">{errors.organizationType.message}</p>}
             </div>

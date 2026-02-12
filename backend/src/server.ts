@@ -6,6 +6,7 @@ import authRouter from './routes/auth';
 import listingsRouter from './routes/listings';
 import farmLocationsRouter from './routes/farmLocations';
 import negotiationsRouter from './routes/negotiations';
+import purchaseOrdersRouter from './routes/purchaseOrders';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/listings', listingsRouter);
 app.use('/api/v1/farm-locations', farmLocationsRouter);
 app.use('/api/v1/negotiations', negotiationsRouter);
+app.use('/api/v1/purchase-orders', purchaseOrdersRouter);
 
 // 404 handler
 app.use((_req, res) => {

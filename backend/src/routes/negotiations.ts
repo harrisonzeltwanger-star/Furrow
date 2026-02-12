@@ -83,7 +83,7 @@ router.post('/', requireRole('FARM_ADMIN', 'MANAGER'), async (req: AuthRequest, 
         status: 'pending',
       },
       include: {
-        listing: { select: { id: true, stackId: true, pricePerTon: true, productType: true } },
+        listing: { select: { id: true, stackId: true, pricePerTon: true, productType: true, baleType: true, isDeliveredPrice: true, truckingCoordinatedBy: true, farmLocation: { select: { name: true } } } },
         buyerOrg: { select: { id: true, name: true } },
         growerOrg: { select: { id: true, name: true } },
         offeredByUser: { select: { id: true, name: true } },
@@ -134,7 +134,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where: where as any,
       include: {
         listing: {
-          select: { id: true, stackId: true, pricePerTon: true, productType: true, estimatedTons: true, status: true },
+          select: { id: true, stackId: true, pricePerTon: true, productType: true, baleType: true, estimatedTons: true, status: true, isDeliveredPrice: true, truckingCoordinatedBy: true, farmLocation: { select: { name: true } } },
         },
         buyerOrg: { select: { id: true, name: true } },
         growerOrg: { select: { id: true, name: true } },
@@ -190,7 +190,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       },
       include: {
         listing: {
-          select: { id: true, stackId: true, pricePerTon: true, productType: true, estimatedTons: true, status: true },
+          select: { id: true, stackId: true, pricePerTon: true, productType: true, baleType: true, estimatedTons: true, status: true, isDeliveredPrice: true, truckingCoordinatedBy: true, farmLocation: { select: { name: true } } },
         },
         buyerOrg: { select: { id: true, name: true } },
         growerOrg: { select: { id: true, name: true } },
@@ -262,7 +262,7 @@ router.post('/:id/counter', requireRole('FARM_ADMIN', 'MANAGER'), async (req: Au
           status: 'pending',
         },
         include: {
-          listing: { select: { id: true, stackId: true, pricePerTon: true, productType: true } },
+          listing: { select: { id: true, stackId: true, pricePerTon: true, productType: true, baleType: true, isDeliveredPrice: true, truckingCoordinatedBy: true, farmLocation: { select: { name: true } } } },
           buyerOrg: { select: { id: true, name: true } },
           growerOrg: { select: { id: true, name: true } },
           offeredByUser: { select: { id: true, name: true } },
@@ -360,9 +360,13 @@ router.post('/:id/accept', requireRole('FARM_ADMIN', 'MANAGER'), async (req: Aut
       return { accepted, po };
     });
 
+    // Hide PO number until both parties have signed the contract
+    const { poNumber: _poNumber, ...poWithoutNumber } = result.po;
+    const isSigned = result.po.signedByBuyerId && result.po.signedByGrowerId;
+
     res.json({
       negotiation: result.accepted,
-      purchaseOrder: result.po,
+      purchaseOrder: isSigned ? result.po : { ...poWithoutNumber, poNumber: null },
     });
   } catch (error) {
     console.error('Accept offer error:', error);

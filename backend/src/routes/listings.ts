@@ -42,6 +42,14 @@ const docUpload = multer({
   },
 });
 
+function haversineDistanceMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 const router = Router();
 
 router.use(authenticate);
@@ -49,6 +57,7 @@ router.use(authenticate);
 const createSchema = z.object({
   farmLocationId: z.string().uuid(),
   productType: z.string().optional(),
+  baleType: z.string().optional(),
   pricePerTon: z.number().positive(),
   estimatedTons: z.number().positive().optional(),
   baleCount: z.number().int().positive().optional(),
@@ -73,6 +82,7 @@ async function generateStackId(): Promise<string> {
 
 const updateSchema = z.object({
   productType: z.string().optional(),
+  baleType: z.string().optional(),
   pricePerTon: z.number().positive().optional(),
   estimatedTons: z.number().positive().optional(),
   baleCount: z.number().int().positive().optional(),
@@ -97,27 +107,45 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const minPrice = qstr(req.query.minPrice);
     const maxPrice = qstr(req.query.maxPrice);
     const organizationId = qstr(req.query.organizationId);
+    const state = qstr(req.query.state);
+    const centerLat = qstr(req.query.centerLat);
+    const centerLng = qstr(req.query.centerLng);
+    const radiusMiles = qstr(req.query.radiusMiles);
     const page = qstr(req.query.page) || '1';
     const limit = qstr(req.query.limit) || '20';
 
     const where: Prisma.ListingWhereInput = {};
 
     if (organizationId) where.organizationId = organizationId;
-    if (status) where.status = status;
-    if (productType) where.productType = productType;
+    // Default to only showing available listings (hide accepted/under_contract)
+    if (status) {
+      where.status = status;
+    } else {
+      where.status = 'available';
+    }
+    if (productType) where.productType = { contains: productType, mode: 'insensitive' };
     if (minPrice || maxPrice) {
       where.pricePerTon = {
         ...(minPrice ? { gte: parseFloat(minPrice) } : {}),
         ...(maxPrice ? { lte: parseFloat(maxPrice) } : {}),
       };
     }
+    if (state) {
+      where.farmLocation = { state: { equals: state, mode: 'insensitive' } };
+    }
+
+    // When radius search is active, skip pagination on the DB query and post-filter in JS
+    const hasRadiusSearch = centerLat && centerLng && radiusMiles;
+    const parsedCenterLat = centerLat ? parseFloat(centerLat) : 0;
+    const parsedCenterLng = centerLng ? parseFloat(centerLng) : 0;
+    const parsedRadius = radiusMiles ? parseFloat(radiusMiles) : 0;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const skip = (pageNum - 1) * limitNum;
 
-    const [listings, totalItems] = await Promise.all([
-      prisma.listing.findMany({
+    if (hasRadiusSearch) {
+      // Fetch all matching listings (no pagination at DB level) for distance post-filter
+      const allListings = await prisma.listing.findMany({
         where,
         include: {
           farmLocation: true,
@@ -126,22 +154,61 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           documents: true,
           _count: { select: { loads: true } },
         },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-      }),
-      prisma.listing.count({ where }),
-    ]);
+      });
 
-    res.json({
-      listings,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        totalPages: Math.ceil(totalItems / limitNum),
-        totalItems,
-      },
-    });
+      // Post-filter by distance and attach distanceMiles
+      const withDistance = allListings
+        .filter((l) => l.farmLocation.latitude != null && l.farmLocation.longitude != null)
+        .map((l) => {
+          const dist = haversineDistanceMiles(parsedCenterLat, parsedCenterLng, l.farmLocation.latitude!, l.farmLocation.longitude!);
+          return { ...l, distanceMiles: Math.round(dist * 10) / 10 };
+        })
+        .filter((l) => l.distanceMiles <= parsedRadius)
+        .sort((a, b) => a.distanceMiles - b.distanceMiles);
+
+      const totalItems = withDistance.length;
+      const skip = (pageNum - 1) * limitNum;
+      const paginated = withDistance.slice(skip, skip + limitNum);
+
+      res.json({
+        listings: paginated,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(totalItems / limitNum),
+          totalItems,
+        },
+      });
+    } else {
+      const skip = (pageNum - 1) * limitNum;
+
+      const [listings, totalItems] = await Promise.all([
+        prisma.listing.findMany({
+          where,
+          include: {
+            farmLocation: true,
+            organization: { select: { id: true, name: true, type: true } },
+            photos: true,
+            documents: true,
+            _count: { select: { loads: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.listing.count({ where }),
+      ]);
+
+      res.json({
+        listings,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(totalItems / limitNum),
+          totalItems,
+        },
+      });
+    }
   } catch (error) {
     console.error('List listings error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list listings' } });
@@ -158,7 +225,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         organization: { select: { id: true, name: true, type: true } },
         photos: true,
         documents: true,
-        poStacks: { include: { po: { select: { id: true, poNumber: true, status: true } } } },
+        poStacks: { include: { po: { select: { id: true, poNumber: true, status: true, signedByBuyerId: true, signedByGrowerId: true } } } },
       },
     });
 
@@ -167,7 +234,20 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
-    res.json(listing);
+    // Redact PO numbers on unsigned purchase orders
+    const sanitized = {
+      ...listing,
+      poStacks: listing.poStacks.map((ps) => {
+        const { signedByBuyerId, signedByGrowerId, ...poRest } = ps.po;
+        const isSigned = signedByBuyerId && signedByGrowerId;
+        return {
+          ...ps,
+          po: { ...poRest, poNumber: isSigned ? poRest.poNumber : null },
+        };
+      }),
+    };
+
+    res.json(sanitized);
   } catch (error) {
     console.error('Get listing error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to get listing' } });

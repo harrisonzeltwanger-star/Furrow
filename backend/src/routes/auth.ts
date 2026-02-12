@@ -15,7 +15,7 @@ const registerSchema = z.object({
   name: z.string().min(1),
   phone: z.string().optional(),
   organizationName: z.string().min(1),
-  organizationType: z.enum(['BUYER', 'GROWER']),
+  organizationType: z.enum(['BUYER', 'GROWER', 'TRUCKING']),
 });
 
 const loginSchema = z.object({
@@ -64,6 +64,18 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
           role: 'FARM_ADMIN',
         },
       });
+
+      // If trucking company, create the linked TruckingCompany record
+      if (data.organizationType === 'TRUCKING') {
+        await tx.truckingCompany.create({
+          data: {
+            name: data.organizationName,
+            organizationId: org.id,
+            contactEmail: data.email,
+            contactPhone: data.phone,
+          },
+        });
+      }
 
       return { org, user };
     });

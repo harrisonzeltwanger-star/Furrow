@@ -8,6 +8,9 @@ import RegisterPage from '@/pages/RegisterPage';
 import DashboardPage from '@/pages/DashboardPage';
 import ListingsPage from '@/pages/ListingsPage';
 import NegotiationsPage from '@/pages/NegotiationsPage';
+import CurrentPOsPage from '@/pages/CurrentPOsPage';
+import LoadsPage from '@/pages/LoadsPage';
+import ContractsPage from '@/pages/ContractsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +47,30 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <AppLayout><NegotiationsPage /></AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/active-pos"
+              element={
+                <ProtectedRoute>
+                  <AppLayout><CurrentPOsPage /></AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/loads"
+              element={
+                <ProtectedRoute>
+                  <AppLayout><LoadsPage /></AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/contracts"
+              element={
+                <ProtectedRoute>
+                  <AppLayout><ContractsPage /></AppLayout>
                 </ProtectedRoute>
               }
             />
