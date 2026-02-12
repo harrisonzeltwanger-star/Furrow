@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -26,7 +26,7 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('hay_portal_refresh_token');
       if (refreshToken) {
         try {
-          const { data } = await axios.post('/api/v1/auth/refresh', { refreshToken });
+          const { data } = await axios.post(`${import.meta.env.VITE_API_URL || '/api/v1'}/auth/refresh`, { refreshToken });
           localStorage.setItem('hay_portal_token', data.token);
           localStorage.setItem('hay_portal_refresh_token', data.refreshToken);
           originalRequest.headers.Authorization = `Bearer ${data.token}`;
