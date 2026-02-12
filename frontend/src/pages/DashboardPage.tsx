@@ -192,7 +192,7 @@ export default function DashboardPage() {
       {/* Average Price by Product */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="text-base">Average Price per Ton by Product</CardTitle>
+          <CardTitle className="text-base">Average Price by Product</CardTitle>
           <CardDescription>Weighted average across active contracts ({rangeLabel})</CardDescription>
         </CardHeader>
         <CardContent className="pt-0">
@@ -215,7 +215,7 @@ export default function DashboardPage() {
                   {stats.avgPriceByProduct.map((row) => (
                     <tr key={row.productType} className="border-b border-border last:border-0">
                       <td className="px-4 py-2 font-medium">{row.productType}</td>
-                      <td className="px-4 py-2 text-right font-semibold">${row.avgPricePerTon}</td>
+                      <td className="px-4 py-2 text-right font-semibold">${Math.round(row.avgPricePerTon)}</td>
                       <td className="px-4 py-2 text-right">{row.totalTons}</td>
                       <td className="px-4 py-2 text-right">{row.poCount}</td>
                     </tr>

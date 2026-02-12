@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,9 +86,12 @@ export default function LoginPage() {
             </Button>
             <p className="text-sm text-muted-foreground">
               Don't have an account?{' '}
-              <Link to="/register" className="text-primary hover:underline">
-                Register
-              </Link>
+              <a
+                href="mailto:support@furrowag.com?subject=Account%20Request&body=I%20would%20like%20to%20request%20an%20account%20on%20Furrow."
+                className="text-primary hover:underline"
+              >
+                Request an Account
+              </a>
             </p>
           </CardFooter>
         </form>

@@ -51,10 +51,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
+            <Link
+              to="/account"
+              className={`text-right hidden sm:block px-3 py-1.5 rounded-md transition-colors hover:bg-accent/50 ${
+                location.pathname === '/account' ? 'bg-accent' : ''
+              }`}
+            >
               <div className="text-sm font-medium">{user?.name}</div>
               <div className="text-xs text-muted-foreground">{user?.organizationName}</div>
-            </div>
+            </Link>
             <Button variant="outline" size="sm" onClick={logout}>
               Sign Out
             </Button>

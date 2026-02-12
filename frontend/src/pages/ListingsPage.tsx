@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -136,6 +137,7 @@ function FitBounds({ markers }: { markers: Listing[] }) {
 
 export default function ListingsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [listings, setListings] = useState<Listing[]>([]);
   const [farmLocations, setFarmLocations] = useState<FarmLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,7 +196,7 @@ export default function ListingsPage() {
       signatureImage,
     });
     setAcceptListing(null);
-    fetchData();
+    navigate('/active-pos');
   };
 
   const handleMakeOffer = async (e: React.FormEvent) => {
@@ -211,6 +213,7 @@ export default function ListingsPage() {
       });
       setOfferListing(null);
       setOfferForm({ pricePerTon: '', tons: '', message: '' });
+      navigate('/negotiations');
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       setOfferError(axiosErr.response?.data?.error?.message || 'Failed to submit offer');

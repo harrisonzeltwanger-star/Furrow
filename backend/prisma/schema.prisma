@@ -87,6 +87,7 @@ model Organization {
 
   // Relations
   users                 User[]
+  invites               Invite[]
   farmLocations         FarmLocation[]
   listings              Listing[]
   buyerSites            BuyerSite[]
@@ -123,6 +124,7 @@ model User {
   createdAt      DateTime     @default(now()) @map("created_at")
 
   // Relations
+  invitesSent           Invite[]
   purchaseOrdersCreated PurchaseOrder[] @relation("CreatedByUser")
   posBuyerSigned        PurchaseOrder[] @relation("BuyerSignedBy")
   posGrowerSigned       PurchaseOrder[] @relation("GrowerSignedBy")
@@ -752,4 +754,26 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+// ============================================
+// INVITES
+// ============================================
+
+model Invite {
+  id             String        @id @default(uuid())
+  token          String        @unique @default(uuid())
+  email          String
+  role           UserRole
+  type           String        // "admin" (new org) or "team" (join existing org)
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  invitedById    String        @map("invited_by_id")
+  invitedBy      User          @relation(fields: [invitedById], references: [id])
+  status         String        @default("pending") // pending, accepted, expired
+  expiresAt      DateTime      @map("expires_at")
+  acceptedAt     DateTime?     @map("accepted_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@map("invites")
 }

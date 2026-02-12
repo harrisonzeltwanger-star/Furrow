@@ -11,6 +11,8 @@ import NegotiationsPage from '@/pages/NegotiationsPage';
 import CurrentPOsPage from '@/pages/CurrentPOsPage';
 import LoadsPage from '@/pages/LoadsPage';
 import ContractsPage from '@/pages/ContractsPage';
+import AccountPage from '@/pages/AccountPage';
+import AcceptInvitePage from '@/pages/AcceptInvitePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,6 +76,15 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/account"
+              element={
+                <ProtectedRoute>
+                  <AppLayout><AccountPage /></AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>
