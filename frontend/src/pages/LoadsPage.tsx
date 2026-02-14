@@ -52,6 +52,7 @@ export default function LoadsPage() {
   const [loading, setLoading] = useState(true);
   const [vendorFilter, setVendorFilter] = useState('all');
   const [productFilter, setProductFilter] = useState('all');
+  const [baleTypeFilter, setBaleTypeFilter] = useState('all');
   const [centerFilter, setCenterFilter] = useState('all');
 
   // Edit state
@@ -135,6 +136,14 @@ export default function LoadsPage() {
     return Array.from(set).sort();
   }, [loads]);
 
+  const baleTypes = useMemo(() => {
+    const set = new Set<string>();
+    loads.forEach((l) => {
+      if (l.listing.baleType) set.add(l.listing.baleType);
+    });
+    return Array.from(set).sort();
+  }, [loads]);
+
   const centerOptions = useMemo(() => {
     const set = new Set<string>();
     loads.forEach((l) => { if (l.po.center) set.add(l.po.center); });
@@ -151,12 +160,15 @@ export default function LoadsPage() {
       if (productFilter !== 'all') {
         if (l.listing.productType !== productFilter) return false;
       }
+      if (baleTypeFilter !== 'all') {
+        if (l.listing.baleType !== baleTypeFilter) return false;
+      }
       if (centerFilter !== 'all') {
         if (l.po.center !== centerFilter) return false;
       }
       return true;
     });
-  }, [loads, vendorFilter, productFilter, centerFilter, orgId]);
+  }, [loads, vendorFilter, productFilter, baleTypeFilter, centerFilter, orgId]);
 
   // Summary stats
   const totalNetTons = useMemo(() => filtered.reduce((sum, l) => sum + l.netWeight / 2000, 0), [filtered]);
@@ -276,6 +288,19 @@ export default function LoadsPage() {
             <option value="all">All Products</option>
             {productTypes.map((p) => (
               <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Bale Type</label>
+          <select
+            value={baleTypeFilter}
+            onChange={(e) => setBaleTypeFilter(e.target.value)}
+            className="block w-48 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="all">All Bale Types</option>
+            {baleTypes.map((b) => (
+              <option key={b} value={b}>{b}</option>
             ))}
           </select>
         </div>
