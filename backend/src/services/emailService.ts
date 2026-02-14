@@ -1,22 +1,77 @@
-import sgMail from '@sendgrid/mail';
+import { Resend } from 'resend';
+import prisma from '../config/database';
 
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@furrowag.com';
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'Furrow Ag <onboarding@resend.dev>';
+const APP_URL = process.env.APP_URL || 'http://localhost:5173';
 
-if (SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY);
-}
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 function isEnabled(): boolean {
-  return !!SENDGRID_API_KEY;
+  return !!resend;
 }
 
-async function send(to: string, subject: string, html: string): Promise<void> {
-  if (!isEnabled()) {
-    console.log(`[EmailService] Would have sent email to ${to}: "${subject}"`);
-    return;
+async function send(to: string | string[], subject: string, html: string): Promise<void> {
+  const recipients = Array.isArray(to) ? to : [to];
+  for (const recipient of recipients) {
+    if (!isEnabled()) {
+      console.log(`[EmailService] Would have sent email to ${recipient}: "${subject}"`);
+      continue;
+    }
+    await resend!.emails.send({ from: FROM_EMAIL, to: recipient, subject, html });
   }
-  await sgMail.send({ to, from: FROM_EMAIL, subject, html });
+}
+
+export async function getOrgAdminEmails(organizationId: string): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      organizationId,
+      role: { in: ['FARM_ADMIN', 'MANAGER'] },
+      isActive: true,
+    },
+    select: { email: true },
+  });
+  return users.map((u) => u.email);
+}
+
+export interface InviteEmailData {
+  recipientEmail: string;
+  inviterName: string;
+  organizationName: string;
+  role: string;
+  acceptLink: string;
+}
+
+export async function sendInviteEmail(data: InviteEmailData): Promise<void> {
+  const roleLabel = data.role === 'FARM_ADMIN' ? 'Admin' : data.role === 'MANAGER' ? 'Manager' : 'Viewer';
+  const html = `
+    <h2>You've been invited to Furrow Ag</h2>
+    <p><strong>${data.inviterName}</strong> has invited you to join <strong>${data.organizationName}</strong> as a <strong>${roleLabel}</strong>.</p>
+    <p style="margin:24px 0">
+      <a href="${data.acceptLink}" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Accept Invitation</a>
+    </p>
+    <p style="color:#666;font-size:13px">This invitation expires in 7 days. If you didn't expect this, you can ignore this email.</p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmail, `You're invited to join ${data.organizationName} on Furrow Ag`, html);
+}
+
+export interface PasswordResetEmailData {
+  recipientEmail: string;
+  resetLink: string;
+}
+
+export async function sendPasswordResetEmail(data: PasswordResetEmailData): Promise<void> {
+  const html = `
+    <h2>Reset Your Password</h2>
+    <p>We received a request to reset the password for your Furrow Ag account.</p>
+    <p style="margin:24px 0">
+      <a href="${data.resetLink}" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Reset Password</a>
+    </p>
+    <p style="color:#666;font-size:13px">This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmail, 'Reset your Furrow Ag password', html);
 }
 
 export interface InvoiceEmailData {
@@ -47,33 +102,43 @@ export async function sendInvoiceEmail(data: InvoiceEmailData): Promise<void> {
 }
 
 export interface POStatusNotificationData {
-  recipientEmail: string;
+  recipientEmail: string | string[];
   poNumber: string;
   oldStatus: string;
   newStatus: string;
   orgName: string;
+  poLink?: string;
 }
 
 export async function sendPOStatusNotification(data: POStatusNotificationData): Promise<void> {
+  const ctaButton = data.poLink
+    ? `<p style="margin:24px 0"><a href="${data.poLink}" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Purchase Order</a></p>`
+    : '';
   const html = `
     <h2>Purchase Order Status Update</h2>
     <p>PO <strong>${data.poNumber}</strong> has been updated.</p>
     <p>Status: <strong>${data.oldStatus}</strong> → <strong>${data.newStatus}</strong></p>
     <p>Organization: ${data.orgName}</p>
+    ${ctaButton}
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
   `;
   await send(data.recipientEmail, `PO ${data.poNumber} — Status changed to ${data.newStatus}`, html);
 }
 
 export interface LoadDeliveryConfirmationData {
-  recipientEmail: string;
+  recipientEmail: string | string[];
   loadNumber: string;
   poNumber: string;
   netWeight: number;
   totalBaleCount: number;
   deliveryDate: string;
+  loadLink?: string;
 }
 
 export async function sendLoadDeliveryConfirmation(data: LoadDeliveryConfirmationData): Promise<void> {
+  const ctaButton = data.loadLink
+    ? `<p style="margin:24px 0"><a href="${data.loadLink}" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Delivery</a></p>`
+    : '';
   const html = `
     <h2>Delivery Confirmed</h2>
     <p>Load <strong>${data.loadNumber}</strong> has been delivered.</p>
@@ -83,6 +148,163 @@ export async function sendLoadDeliveryConfirmation(data: LoadDeliveryConfirmatio
       <tr><td style="padding:4px 8px">Bale Count</td><td style="padding:4px 8px">${data.totalBaleCount}</td></tr>
       <tr><td style="padding:4px 8px">Date</td><td style="padding:4px 8px">${data.deliveryDate}</td></tr>
     </table>
+    ${ctaButton}
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
   `;
   await send(data.recipientEmail, `Delivery Confirmed — Load ${data.loadNumber}`, html);
+}
+
+// --- Negotiation notification emails ---
+
+export interface NewOfferEmailData {
+  recipientEmails: string[];
+  stackId: string;
+  buyerName: string;
+  offeredPricePerTon: number;
+  offeredTons?: number;
+  message?: string;
+}
+
+export async function sendNewOfferEmail(data: NewOfferEmailData): Promise<void> {
+  const tonsLine = data.offeredTons ? `<tr><td style="padding:4px 8px">Tons</td><td style="padding:4px 8px">${data.offeredTons}</td></tr>` : '';
+  const messageLine = data.message ? `<p style="margin-top:12px"><em>"${data.message}"</em></p>` : '';
+  const html = `
+    <h2>New Offer Received</h2>
+    <p><strong>${data.buyerName}</strong> has made an offer on Stack <strong>${data.stackId}</strong>.</p>
+    <table style="border-collapse:collapse">
+      <tr><td style="padding:4px 8px">Price/Ton</td><td style="padding:4px 8px"><strong>$${data.offeredPricePerTon.toFixed(2)}</strong></td></tr>
+      ${tonsLine}
+    </table>
+    ${messageLine}
+    <p style="margin:24px 0">
+      <a href="${APP_URL}/negotiations" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Offer</a>
+    </p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmails, `New Offer — Stack ${data.stackId}`, html);
+}
+
+export interface CounterOfferEmailData {
+  recipientEmails: string[];
+  stackId: string;
+  counterPartyName: string;
+  offeredPricePerTon: number;
+  offeredTons?: number;
+  message?: string;
+}
+
+export async function sendCounterOfferEmail(data: CounterOfferEmailData): Promise<void> {
+  const tonsLine = data.offeredTons ? `<tr><td style="padding:4px 8px">Tons</td><td style="padding:4px 8px">${data.offeredTons}</td></tr>` : '';
+  const messageLine = data.message ? `<p style="margin-top:12px"><em>"${data.message}"</em></p>` : '';
+  const html = `
+    <h2>Counter Offer Received</h2>
+    <p><strong>${data.counterPartyName}</strong> has countered on Stack <strong>${data.stackId}</strong>.</p>
+    <table style="border-collapse:collapse">
+      <tr><td style="padding:4px 8px">New Price/Ton</td><td style="padding:4px 8px"><strong>$${data.offeredPricePerTon.toFixed(2)}</strong></td></tr>
+      ${tonsLine}
+    </table>
+    ${messageLine}
+    <p style="margin:24px 0">
+      <a href="${APP_URL}/negotiations" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Counter Offer</a>
+    </p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmails, `Counter Offer — Stack ${data.stackId}`, html);
+}
+
+export interface OfferAcceptedEmailData {
+  recipientEmails: string[];
+  stackId: string;
+  acceptedByName: string;
+  pricePerTon: number;
+  tons: number;
+}
+
+export async function sendOfferAcceptedEmail(data: OfferAcceptedEmailData): Promise<void> {
+  const html = `
+    <h2>Offer Accepted!</h2>
+    <p><strong>${data.acceptedByName}</strong> has accepted your offer on Stack <strong>${data.stackId}</strong>.</p>
+    <table style="border-collapse:collapse">
+      <tr><td style="padding:4px 8px">Price/Ton</td><td style="padding:4px 8px"><strong>$${data.pricePerTon.toFixed(2)}</strong></td></tr>
+      <tr><td style="padding:4px 8px">Tons</td><td style="padding:4px 8px">${data.tons}</td></tr>
+    </table>
+    <p>A purchase order has been created. Please review and sign the contract.</p>
+    <p style="margin:24px 0">
+      <a href="${APP_URL}/purchase-orders" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Purchase Order</a>
+    </p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmails, `Offer Accepted — Stack ${data.stackId}`, html);
+}
+
+export interface OfferRejectedEmailData {
+  recipientEmails: string[];
+  stackId: string;
+  rejectedByName: string;
+}
+
+export async function sendOfferRejectedEmail(data: OfferRejectedEmailData): Promise<void> {
+  const html = `
+    <h2>Offer Declined</h2>
+    <p><strong>${data.rejectedByName}</strong> has declined your offer on Stack <strong>${data.stackId}</strong>.</p>
+    <p>You can browse other listings or submit a new offer.</p>
+    <p style="margin:24px 0">
+      <a href="${APP_URL}/marketplace" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Browse Listings</a>
+    </p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmails, `Offer Declined — Stack ${data.stackId}`, html);
+}
+
+export interface ContractSignedEmailData {
+  recipientEmails: string[];
+  poNumber: string;
+  signerName: string;
+  fullyExecuted: boolean;
+}
+
+export async function sendContractSignedEmail(data: ContractSignedEmailData): Promise<void> {
+  const subject = data.fullyExecuted
+    ? `Contract Executed — ${data.poNumber}`
+    : `Contract Awaiting Signature — ${data.poNumber}`;
+  const heading = data.fullyExecuted ? 'Contract Fully Executed' : 'Contract Awaiting Your Signature';
+  const body = data.fullyExecuted
+    ? `<p>Both parties have signed PO <strong>${data.poNumber}</strong>. The contract is now <strong>ACTIVE</strong>.</p>`
+    : `<p><strong>${data.signerName}</strong> has signed PO <strong>${data.poNumber}</strong>. The contract is awaiting your signature.</p>`;
+  const html = `
+    <h2>${heading}</h2>
+    ${body}
+    <p style="margin:24px 0">
+      <a href="${APP_URL}/purchase-orders" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Contract</a>
+    </p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmails, subject, html);
+}
+
+export interface LoadEditedEmailData {
+  recipientEmails: string[];
+  loadNumber: string;
+  poNumber: string;
+  editorName: string;
+  changes: { field: string; oldValue: string | null; newValue: string | null }[];
+}
+
+export async function sendLoadEditedEmail(data: LoadEditedEmailData): Promise<void> {
+  const changeRows = data.changes.map((c) =>
+    `<tr><td style="padding:4px 8px">${c.field}</td><td style="padding:4px 8px">${c.oldValue ?? '—'}</td><td style="padding:4px 8px">${c.newValue ?? '—'}</td></tr>`
+  ).join('');
+  const html = `
+    <h2>Load Updated</h2>
+    <p><strong>${data.editorName}</strong> edited Load <strong>${data.loadNumber}</strong> (PO ${data.poNumber}).</p>
+    <table style="border-collapse:collapse">
+      <tr style="font-weight:600"><td style="padding:4px 8px">Field</td><td style="padding:4px 8px">Old</td><td style="padding:4px 8px">New</td></tr>
+      ${changeRows}
+    </table>
+    <p style="margin:24px 0">
+      <a href="${APP_URL}/purchase-orders" style="background-color:#2d5a27;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View Details</a>
+    </p>
+    <p style="color:#666;font-size:13px;margin-top:16px">— Furrow Ag</p>
+  `;
+  await send(data.recipientEmails, `Load Updated — ${data.loadNumber}`, html);
 }

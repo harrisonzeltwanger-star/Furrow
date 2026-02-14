@@ -5,6 +5,14 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
 import { parsePagination, paginationMeta } from '../utils/pagination';
 import { autoGenerateInvoice } from '../services/invoiceService';
+import {
+  getOrgAdminEmails,
+  sendContractSignedEmail,
+  sendLoadDeliveryConfirmation,
+  sendLoadEditedEmail,
+  sendPOStatusNotification,
+  sendOfferAcceptedEmail,
+} from '../services/emailService';
 
 const router = Router();
 
@@ -285,7 +293,7 @@ router.post('/accept-listing', requireRole('FARM_ADMIN'), async (req: AuthReques
 
     const listing = await prisma.listing.findUnique({
       where: { id: data.listingId },
-      include: { organization: { select: { id: true, type: true } } },
+      include: { organization: { select: { id: true } } },
     });
 
     if (!listing) {
@@ -379,6 +387,19 @@ router.post('/accept-listing', requireRole('FARM_ADMIN'), async (req: AuthReques
         include: poIncludes,
       });
     });
+
+    // Notify grower admins that their listing was accepted
+    const buyerOrg = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+    getOrgAdminEmails(listing.organizationId).then((emails) => {
+      if (emails.length === 0) return;
+      sendOfferAcceptedEmail({
+        recipientEmails: emails,
+        stackId: listing.stackId || 'N/A',
+        acceptedByName: buyerOrg?.name || 'Buyer',
+        pricePerTon: listing.pricePerTon,
+        tons: contractedTons,
+      });
+    }).catch((err) => console.error('Accept listing email failed:', err));
 
     res.status(201).json(redactPoNumber(result as unknown as Record<string, unknown>));
   } catch (error) {
@@ -603,6 +624,35 @@ router.post('/:id/sign', requireRole('FARM_ADMIN'), async (req: AuthRequest, res
       return result;
     });
 
+    // Notify the other party (or both if fully executed)
+    const signerUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    if (bothSigned) {
+      // Both signed — notify both parties
+      Promise.all([getOrgAdminEmails(po.buyerOrgId), getOrgAdminEmails(po.growerOrgId)])
+        .then(([buyerEmails, growerEmails]) => {
+          const allEmails = [...buyerEmails, ...growerEmails];
+          if (allEmails.length === 0) return;
+          sendContractSignedEmail({
+            recipientEmails: allEmails,
+            poNumber: po.poNumber,
+            signerName: signerUser?.name || 'A party',
+            fullyExecuted: true,
+          });
+        }).catch((err) => console.error('Contract signed email failed:', err));
+    } else {
+      // One side signed — notify the other party
+      const otherOrgId = isBuyer ? po.growerOrgId : po.buyerOrgId;
+      getOrgAdminEmails(otherOrgId).then((emails) => {
+        if (emails.length === 0) return;
+        sendContractSignedEmail({
+          recipientEmails: emails,
+          poNumber: po.poNumber,
+          signerName: signerUser?.name || 'A party',
+          fullyExecuted: false,
+        });
+      }).catch((err) => console.error('Contract signed email failed:', err));
+    }
+
     res.json(redactPoNumber(updated as unknown as Record<string, unknown>));
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -671,6 +721,22 @@ router.post('/:id/close', requireRole('FARM_ADMIN'), async (req: AuthRequest, re
     } catch (invoiceError) {
       console.error('Auto-generate invoice failed (PO still closed):', invoiceError);
     }
+
+    // Notify both parties that the contract is completed
+    Promise.all([getOrgAdminEmails(po.buyerOrgId), getOrgAdminEmails(po.growerOrgId)])
+      .then(([buyerEmails, growerEmails]) => {
+        const allEmails = [...buyerEmails, ...growerEmails];
+        if (allEmails.length === 0) return;
+        const closerOrg = po.buyerOrgId === orgId ? 'Buyer' : 'Grower';
+        sendPOStatusNotification({
+          recipientEmail: allEmails,
+          poNumber: po.poNumber,
+          oldStatus: 'ACTIVE',
+          newStatus: 'COMPLETED',
+          orgName: closerOrg,
+          poLink: `${process.env.APP_URL || 'http://localhost:5173'}/purchase-orders`,
+        });
+      }).catch((err) => console.error('Contract closed email failed:', err));
 
     res.json(updated);
   } catch (error) {
@@ -880,6 +946,22 @@ router.post('/:id/deliveries', requireRole('FARM_ADMIN', 'MANAGER'), async (req:
 
     const avgBaleWeight = data.totalBaleCount > 0 ? netWeight / data.totalBaleCount : 0;
 
+    // Notify both parties about the delivery
+    Promise.all([getOrgAdminEmails(po.buyerOrgId), getOrgAdminEmails(po.growerOrgId)])
+      .then(([buyerEmails, growerEmails]) => {
+        const allEmails = [...buyerEmails, ...growerEmails];
+        if (allEmails.length === 0) return;
+        sendLoadDeliveryConfirmation({
+          recipientEmail: allEmails,
+          loadNumber,
+          poNumber: po.poNumber,
+          netWeight,
+          totalBaleCount: data.totalBaleCount,
+          deliveryDate: new Date().toLocaleDateString(),
+          loadLink: `${process.env.APP_URL || 'http://localhost:5173'}/purchase-orders`,
+        });
+      }).catch((err) => console.error('Delivery notification email failed:', err));
+
     res.status(201).json({
       ...load,
       netWeight,
@@ -1061,6 +1143,24 @@ router.patch('/loads/:loadId', requireRole('FARM_ADMIN', 'MANAGER'), async (req:
 
     const netWeight = (updated.grossWeight ?? 0) - (updated.tareWeight ?? 0);
     const avgBaleWeight = updated.totalBaleCount && updated.totalBaleCount > 0 ? netWeight / updated.totalBaleCount : 0;
+
+    // Notify both parties about the load edit
+    const editorUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    const editedPo = await prisma.purchaseOrder.findUnique({ where: { id: load.poId }, select: { buyerOrgId: true, growerOrgId: true, poNumber: true } });
+    if (editedPo) {
+      Promise.all([getOrgAdminEmails(editedPo.buyerOrgId), getOrgAdminEmails(editedPo.growerOrgId)])
+        .then(([buyerEmails, growerEmails]) => {
+          const allEmails = [...buyerEmails, ...growerEmails];
+          if (allEmails.length === 0) return;
+          sendLoadEditedEmail({
+            recipientEmails: allEmails,
+            loadNumber: load.loadNumber,
+            poNumber: editedPo.poNumber,
+            editorName: editorUser?.name || 'Someone',
+            changes: edits.map((e) => ({ field: e.fieldName, oldValue: e.oldValue, newValue: e.newValue })),
+          });
+        }).catch((err) => console.error('Load edited email failed:', err));
+    }
 
     res.json({
       ...updated,

@@ -4,6 +4,13 @@ import prisma from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
 import { parsePagination, paginationMeta } from '../utils/pagination';
+import {
+  getOrgAdminEmails,
+  sendNewOfferEmail,
+  sendCounterOfferEmail,
+  sendOfferAcceptedEmail,
+  sendOfferRejectedEmail,
+} from '../services/emailService';
 
 const router = Router();
 
@@ -52,7 +59,7 @@ router.post('/', requireRole('FARM_ADMIN', 'MANAGER'), async (req: AuthRequest, 
     // Fetch listing to get grower org
     const listing = await prisma.listing.findUnique({
       where: { id: data.listingId },
-      include: { organization: { select: { id: true, type: true } } },
+      include: { organization: { select: { id: true } } },
     });
 
     if (!listing) {
@@ -90,6 +97,19 @@ router.post('/', requireRole('FARM_ADMIN', 'MANAGER'), async (req: AuthRequest, 
         offeredByUser: { select: { id: true, name: true } },
       },
     });
+
+    // Notify grower org admins
+    getOrgAdminEmails(listing.organizationId).then((emails) => {
+      if (emails.length === 0) return;
+      sendNewOfferEmail({
+        recipientEmails: emails,
+        stackId: negotiation.listing.stackId,
+        buyerName: negotiation.buyerOrg.name,
+        offeredPricePerTon: data.offeredPricePerTon,
+        offeredTons: data.offeredTons,
+        message: data.message,
+      });
+    }).catch((err) => console.error('New offer email failed:', err));
 
     res.status(201).json(negotiation);
   } catch (error) {
@@ -276,6 +296,20 @@ router.post('/:id/counter', requireRole('FARM_ADMIN', 'MANAGER'), async (req: Au
       }),
     ]);
 
+    // Notify the other party's admins
+    const otherOrgId = orgId === negotiation.buyerOrgId ? negotiation.growerOrgId : negotiation.buyerOrgId;
+    getOrgAdminEmails(otherOrgId).then((emails) => {
+      if (emails.length === 0) return;
+      sendCounterOfferEmail({
+        recipientEmails: emails,
+        stackId: counterOffer.listing.stackId,
+        counterPartyName: counterOffer.offeredByUser?.name || 'Someone',
+        offeredPricePerTon: data.offeredPricePerTon,
+        offeredTons: data.offeredTons,
+        message: data.message,
+      });
+    }).catch((err) => console.error('Counter offer email failed:', err));
+
     res.status(201).json(counterOffer);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -366,6 +400,23 @@ router.post('/:id/accept', requireRole('FARM_ADMIN', 'MANAGER'), async (req: Aut
       return { accepted, po };
     });
 
+    // Notify the offerer's admins that their offer was accepted
+    const acceptorOrgId = orgId;
+    const offererOrgId = negotiation.offeredByOrgId;
+    const acceptorOrgName = acceptorOrgId === negotiation.buyerOrgId ? 'Buyer' : 'Grower';
+    // Get org name for the email
+    const acceptorOrg = await prisma.organization.findUnique({ where: { id: acceptorOrgId }, select: { name: true } });
+    getOrgAdminEmails(offererOrgId).then((emails) => {
+      if (emails.length === 0) return;
+      sendOfferAcceptedEmail({
+        recipientEmails: emails,
+        stackId: listing?.stackId || 'N/A',
+        acceptedByName: acceptorOrg?.name || acceptorOrgName,
+        pricePerTon: negotiation.offeredPricePerTon,
+        tons: contractedTons,
+      });
+    }).catch((err) => console.error('Offer accepted email failed:', err));
+
     // Hide PO number until both parties have signed the contract
     const { poNumber: _poNumber, ...poWithoutNumber } = result.po;
     const isSigned = result.po.signedByBuyerId && result.po.signedByGrowerId;
@@ -415,6 +466,18 @@ router.post('/:id/reject', requireRole('FARM_ADMIN', 'MANAGER'), async (req: Aut
       where: { id: negotiation.id },
       data: { status: 'rejected' },
     });
+
+    // Notify the offerer's admins that their offer was declined
+    const rejectorOrg = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+    const listing = await prisma.listing.findUnique({ where: { id: negotiation.listingId }, select: { stackId: true } });
+    getOrgAdminEmails(negotiation.offeredByOrgId).then((emails) => {
+      if (emails.length === 0) return;
+      sendOfferRejectedEmail({
+        recipientEmails: emails,
+        stackId: listing?.stackId || 'N/A',
+        rejectedByName: rejectorOrg?.name || 'The other party',
+      });
+    }).catch((err) => console.error('Offer rejected email failed:', err));
 
     res.json(rejected);
   } catch (error) {
