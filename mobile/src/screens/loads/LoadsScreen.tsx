@@ -40,6 +40,7 @@ export default function LoadsScreen() {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [vendorFilter, setVendorFilter] = useState<string>('all');
   const [productFilter, setProductFilter] = useState<string>('all');
+  const [baleTypeFilter, setBaleTypeFilter] = useState<string>('all');
   const [centerFilter, setCenterFilter] = useState<string>('all');
 
   // Edit state
@@ -146,6 +147,14 @@ export default function LoadsScreen() {
     return Array.from(set).sort();
   }, [loads]);
 
+  const baleTypes = useMemo<string[]>(() => {
+    const set = new Set<string>();
+    loads.forEach((l) => {
+      if (l.listing.baleType) set.add(l.listing.baleType);
+    });
+    return Array.from(set).sort();
+  }, [loads]);
+
   const centerOptions = useMemo<string[]>(() => {
     const set = new Set<string>();
     loads.forEach((l) => {
@@ -165,12 +174,15 @@ export default function LoadsScreen() {
       if (productFilter !== 'all') {
         if (l.listing.productType !== productFilter) return false;
       }
+      if (baleTypeFilter !== 'all') {
+        if (l.listing.baleType !== baleTypeFilter) return false;
+      }
       if (centerFilter !== 'all') {
         if (l.po.center !== centerFilter) return false;
       }
       return true;
     });
-  }, [loads, vendorFilter, productFilter, centerFilter, orgId]);
+  }, [loads, vendorFilter, productFilter, baleTypeFilter, centerFilter, orgId]);
 
   const totalNetTons = useMemo<number>(
     () => filtered.reduce((sum, l) => sum + l.netWeight / 2000, 0),
@@ -509,6 +521,32 @@ export default function LoadsScreen() {
                           label={p}
                           selected={productFilter === p}
                           onPress={() => setProductFilter(p)}
+                        />
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* Bale type filter */}
+                {baleTypes.length > 0 && (
+                  <>
+                    <Text style={styles.filterLabel}>Bale Type</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.filterRow}
+                    >
+                      <FilterChip
+                        label="All Bale Types"
+                        selected={baleTypeFilter === 'all'}
+                        onPress={() => setBaleTypeFilter('all')}
+                      />
+                      {baleTypes.map((b) => (
+                        <FilterChip
+                          key={b}
+                          label={b}
+                          selected={baleTypeFilter === b}
+                          onPress={() => setBaleTypeFilter(b)}
                         />
                       ))}
                     </ScrollView>
