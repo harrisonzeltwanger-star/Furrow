@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '@/services/api';
@@ -12,7 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
-import ContractReviewDialog, { type ContractDetails } from '@/components/ContractReviewDialog';
 
 // Fix default Leaflet marker icons
 const defaultIcon = L.icon({
@@ -135,6 +134,15 @@ function FitBounds({ markers }: { markers: Listing[] }) {
   return null;
 }
 
+function PinDropHandler({ onPin }: { onPin: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      onPin(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
 export default function ListingsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -173,30 +181,22 @@ export default function ListingsPage() {
   // Accept offer → contract review dialog
   const [acceptListing, setAcceptListing] = useState<Listing | null>(null);
 
-  const contractDetails: ContractDetails | null = acceptListing ? {
-    stackId: acceptListing.stackId,
-    productType: acceptListing.productType,
-    baleType: acceptListing.baleType,
-    buyerName: user?.organizationName ?? '',
-    growerName: acceptListing.organization.name,
-    pricePerTon: acceptListing.pricePerTon,
-    tons: acceptListing.estimatedTons ?? 0,
-    moisturePercent: acceptListing.moisturePercent,
-    notes: acceptListing.notes,
-    isDeliveredPrice: acceptListing.isDeliveredPrice,
-    truckingCoordinatedBy: acceptListing.truckingCoordinatedBy,
-    farmLocationName: acceptListing.farmLocation.name,
-  } : null;
 
-  const handleAcceptAndSign = async (typedName: string, signatureImage?: string) => {
+  const handleAcceptAtListingPrice = async () => {
     if (!acceptListing) return;
-    await api.post('/purchase-orders/accept-listing', {
-      listingId: acceptListing.id,
-      typedName,
-      signatureImage,
-    });
-    setAcceptListing(null);
-    navigate('/active-pos');
+    try {
+      await api.post('/negotiations', {
+        listingId: acceptListing.id,
+        offeredPricePerTon: acceptListing.pricePerTon,
+        offeredTons: acceptListing.estimatedTons ?? undefined,
+        message: `Offering to buy at your listed price of $${acceptListing.pricePerTon}/ton.`,
+      });
+      setAcceptListing(null);
+      navigate('/negotiations');
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(axiosErr.response?.data?.error?.message || 'Failed to submit offer');
+    }
   };
 
   const handleMakeOffer = async (e: React.FormEvent) => {
@@ -225,6 +225,10 @@ export default function ListingsPage() {
   // New farm location form
   const [showNewLocation, setShowNewLocation] = useState(false);
   const [newLocation, setNewLocation] = useState({ name: '', address: '', latitude: 0, longitude: 0 });
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [showPinMap, setShowPinMap] = useState(false);
+  const [pinCoord, setPinCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [savingPin, setSavingPin] = useState(false);
 
   const fetchData = async (overrideParams?: Record<string, string>) => {
     try {
@@ -328,6 +332,86 @@ export default function ListingsPage() {
       setNewLocation({ name: '', address: '', latitude: 0, longitude: 0 });
     } catch {
       setError('Failed to create farm location');
+    }
+  };
+
+  const useCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.');
+      return;
+    }
+    setLocatingUser(true);
+    setError('');
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 });
+      });
+      const { latitude, longitude } = position.coords;
+
+      // Reverse geocode with Nominatim
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+        { headers: { 'User-Agent': 'FurrowHayPortal/1.0' } }
+      );
+      const geoData = await geoRes.json();
+      const address = geoData.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      const city = geoData.address?.city || geoData.address?.town || geoData.address?.village || '';
+      const name = city ? `${city} Location` : 'Current Location';
+
+      // Create farm location via API
+      const res = await api.post('/farm-locations', { name, address, latitude, longitude });
+      setFarmLocations((prev) => [...prev, res.data]);
+      setForm((prev) => ({ ...prev, farmLocationId: res.data.id }));
+    } catch {
+      setError('Failed to get current location. Please ensure location access is allowed.');
+    } finally {
+      setLocatingUser(false);
+    }
+  };
+
+  const useHomeAddress = async () => {
+    if (!user?.organizationAddress) {
+      setError('No home address set. Go to Account settings to set one.');
+      return;
+    }
+    setError('');
+    try {
+      const res = await api.post('/farm-locations', {
+        name: 'Home Address',
+        address: user.organizationAddress,
+        latitude: user?.organizationLatitude ?? undefined,
+        longitude: user?.organizationLongitude ?? undefined,
+      });
+      setFarmLocations((prev) => [...prev, res.data]);
+      setForm((prev) => ({ ...prev, farmLocationId: res.data.id }));
+    } catch {
+      setError('Failed to create location from home address.');
+    }
+  };
+
+  const handleSavePin = async () => {
+    if (!pinCoord) return;
+    setSavingPin(true);
+    setError('');
+    try {
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${pinCoord.lat}&lon=${pinCoord.lng}&zoom=18&addressdetails=1`,
+        { headers: { 'User-Agent': 'FurrowHayPortal/1.0' } }
+      );
+      const geoData = await geoRes.json();
+      const address = geoData.display_name || `${pinCoord.lat.toFixed(5)}, ${pinCoord.lng.toFixed(5)}`;
+      const city = geoData.address?.city || geoData.address?.town || geoData.address?.village || '';
+      const name = city ? `${city} Pin` : 'Dropped Pin';
+
+      const res = await api.post('/farm-locations', { name, address, latitude: pinCoord.lat, longitude: pinCoord.lng });
+      setFarmLocations((prev) => [...prev, res.data]);
+      setForm((prev) => ({ ...prev, farmLocationId: res.data.id }));
+      setShowPinMap(false);
+      setPinCoord(null);
+    } catch {
+      setError('Failed to save pin location.');
+    } finally {
+      setSavingPin(false);
     }
   };
 
@@ -517,8 +601,49 @@ export default function ListingsPage() {
                   <Button type="button" variant="outline" size="sm" onClick={() => setShowNewLocation(!showNewLocation)}>
                     +
                   </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={useCurrentLocation} disabled={locatingUser} title="Use current location">
+                    {locatingUser ? '...' : '\u{1F4CD}'}
+                  </Button>
+                  {user?.organizationAddress && (
+                    <Button type="button" variant="outline" size="sm" onClick={useHomeAddress} title="Use home address">
+                      {'\u{1F3E0}'}
+                    </Button>
+                  )}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowPinMap(!showPinMap)} title="Drop a pin on map">
+                    {'\u{1F4CC}'}
+                  </Button>
                 </div>
               </div>
+              {showPinMap && (
+                <div className="md:col-span-2 space-y-2">
+                  <Label>Drop a pin on the map</Label>
+                  <div className="h-[300px] rounded-md border border-input overflow-hidden relative">
+                    <MapContainer
+                      center={[
+                        user?.organizationLatitude ?? 39.5,
+                        user?.organizationLongitude ?? -98.0,
+                      ]}
+                      zoom={user?.organizationLatitude ? 10 : 4}
+                      style={{ height: '100%', width: '100%' }}
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+                      <PinDropHandler onPin={(lat, lng) => setPinCoord({ lat, lng })} />
+                      {pinCoord && <Marker position={[pinCoord.lat, pinCoord.lng]} />}
+                    </MapContainer>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" onClick={handleSavePin} disabled={!pinCoord || savingPin}>
+                      {savingPin ? 'Saving...' : 'Use This Location'}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => { setShowPinMap(false); setPinCoord(null); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Product Type</Label>
                 <input
@@ -777,17 +902,15 @@ export default function ListingsPage() {
                       )}
                       {listing.organization.id !== user?.organizationId && listing.status === 'available' && (
                         <div className="mt-2 flex gap-1">
-                          {user?.role === 'FARM_ADMIN' && (
-                            <button
-                              className="px-2 py-1 text-xs font-medium rounded border border-primary bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAcceptListing(listing);
-                              }}
-                            >
-                              Accept Offer
-                            </button>
-                          )}
+                          <button
+                            className="px-2 py-1 text-xs font-medium rounded border border-primary bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAcceptListing(listing);
+                            }}
+                          >
+                            Accept Offer
+                          </button>
                           {!listing.firmPrice && (
                             <button
                               className="px-2 py-1 text-xs font-medium rounded border border-gray-300 hover:bg-gray-100 transition-colors"
@@ -853,17 +976,15 @@ export default function ListingsPage() {
                     <div className="flex items-start gap-3">
                       {listing.organization.id !== user?.organizationId && listing.status === 'available' && (
                         <div className="flex flex-col gap-1">
-                          {user?.role === 'FARM_ADMIN' && (
-                            <Button
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAcceptListing(listing);
-                              }}
-                            >
-                              Accept Offer
-                            </Button>
-                          )}
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAcceptListing(listing);
+                            }}
+                          >
+                            Accept Offer
+                          </Button>
                           {!listing.firmPrice && (
                             <Button
                               size="sm"
@@ -1014,13 +1135,24 @@ export default function ListingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Accept Offer → Contract Review Dialog */}
-      <ContractReviewDialog
-        open={!!acceptListing}
-        onClose={() => setAcceptListing(null)}
-        details={contractDetails}
-        onSign={handleAcceptAndSign}
-      />
+      {/* Accept Offer Confirmation */}
+      <Dialog open={!!acceptListing} onOpenChange={(open) => { if (!open) setAcceptListing(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Accept Offer</DialogTitle>
+            <DialogDescription>
+              {acceptListing && `Send an offer to ${acceptListing.organization.name} at their listed price of $${acceptListing.pricePerTon}/ton for ${acceptListing.estimatedTons ?? '—'} tons of ${acceptListing.productType || 'hay'}?`}
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will create a negotiation. The grower will need to accept before a purchase order is created.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAcceptListing(null)}>Cancel</Button>
+            <Button onClick={handleAcceptAtListingPrice}>Send Offer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

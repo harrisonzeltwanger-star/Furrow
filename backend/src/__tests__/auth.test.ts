@@ -29,7 +29,6 @@ describe('POST /api/v1/auth/register', () => {
         password: 'TestPass123',
         name: 'Test User',
         organizationName: 'Test Org',
-        organizationType: 'BUYER',
       });
 
     expect(res.status).toBe(201);
@@ -50,7 +49,6 @@ describe('POST /api/v1/auth/register', () => {
         password: 'TestPass123',
         name: 'Test User',
         organizationName: 'Test Org 2',
-        organizationType: 'BUYER',
       });
 
     expect(res.status).toBe(409);
@@ -65,7 +63,6 @@ describe('POST /api/v1/auth/register', () => {
         password: 'TestPass123',
         name: 'Test User',
         organizationName: 'Test Org',
-        organizationType: 'BUYER',
       });
 
     expect(res.status).toBe(400);
@@ -80,7 +77,6 @@ describe('POST /api/v1/auth/register', () => {
         password: 'short',
         name: 'Test User',
         organizationName: 'Test Org',
-        organizationType: 'BUYER',
       });
 
     expect(res.status).toBe(400);

@@ -45,40 +45,46 @@ export default function SelectPicker({ label, value, options, onValueChange, pla
         <Text style={{ color: '#a09080' }}>▼</Text>
       </TouchableOpacity>
 
-      <Modal visible={visible} transparent animationType="slide">
-        <SafeAreaView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#fdfcf8', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#d8cebb' }}>
-              <Text style={{ fontSize: 16, fontWeight: '600', color: '#3a2a1a' }}>{label || 'Select'}</Text>
-              <TouchableOpacity onPress={() => setVisible(false)}>
-                <Text style={{ fontSize: 16, color: '#2d5a27', fontWeight: '600' }}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item.value}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  onPress={() => {
-                    onValueChange(item.value);
-                    setVisible(false);
-                  }}
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 14,
-                    borderBottomWidth: 1,
-                    borderBottomColor: '#f0ece4',
-                    backgroundColor: item.value === value ? '#e8f5e3' : 'transparent',
-                  }}
-                >
-                  <Text style={{ fontSize: 15, color: '#3a2a1a', fontWeight: item.value === value ? '600' : '400' }}>
-                    {item.label}
-                  </Text>
+      <Modal visible={visible} transparent animationType="fade">
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setVisible(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 12 }}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={{ backgroundColor: '#fdfcf8', borderRadius: 16, maxHeight: '85%', overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: '#d8cebb' }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#3a2a1a' }}>{label || 'Select'}</Text>
+                <TouchableOpacity onPress={() => setVisible(false)} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 17, color: '#2d5a27', fontWeight: '600' }}>Done</Text>
                 </TouchableOpacity>
-              )}
-            />
-          </View>
-        </SafeAreaView>
+              </View>
+              <FlatList
+                data={options}
+                keyExtractor={(item) => item.value}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={() => {
+                      onValueChange(item.value);
+                      setVisible(false);
+                    }}
+                    style={{
+                      paddingHorizontal: 18,
+                      paddingVertical: 18,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#f0ece4',
+                      backgroundColor: item.value === value ? '#e8f5e3' : 'transparent',
+                    }}
+                  >
+                    <Text style={{ fontSize: 17, color: '#3a2a1a', fontWeight: item.value === value ? '600' : '400' }}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );

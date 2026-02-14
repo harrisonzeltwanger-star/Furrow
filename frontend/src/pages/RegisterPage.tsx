@@ -16,7 +16,6 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   phone: z.string().optional(),
   organizationName: z.string().min(1, 'Organization name is required'),
-  organizationType: z.enum(['BUYER', 'GROWER', 'TRUCKING']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword'],
@@ -31,7 +30,7 @@ export default function RegisterPage() {
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { organizationType: 'BUYER' },
+    defaultValues: {},
   });
 
   const onSubmit = async (data: RegisterForm) => {
@@ -83,19 +82,6 @@ export default function RegisterPage() {
               <Label htmlFor="organizationName">Organization Name</Label>
               <Input id="organizationName" placeholder="Your Farm or Feedlot" {...register('organizationName')} />
               {errors.organizationName && <p className="text-sm text-destructive">{errors.organizationName.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="organizationType">Organization Type</Label>
-              <select
-                id="organizationType"
-                {...register('organizationType')}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
-              >
-                <option value="BUYER">Buyer (Feedlot)</option>
-                <option value="GROWER">Grower (Hay Producer)</option>
-                <option value="TRUCKING">Trucking Company</option>
-              </select>
-              {errors.organizationType && <p className="text-sm text-destructive">{errors.organizationType.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>

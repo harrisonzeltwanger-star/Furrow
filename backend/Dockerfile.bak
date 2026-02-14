@@ -1,0 +1,19 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY prisma ./prisma/
+
+# Install all deps (including prisma CLI for migrations)
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src/
+
+RUN npx prisma generate
+RUN npx tsc
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "npx prisma migrate deploy; node dist/server.js"]

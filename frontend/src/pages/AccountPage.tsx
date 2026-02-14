@@ -35,12 +35,6 @@ const roleBadge: Record<string, string> = {
   VIEWER: 'Viewer',
 };
 
-const orgTypeBadge: Record<string, string> = {
-  BUYER: 'Buyer',
-  GROWER: 'Grower',
-  TRUCKING: 'Trucking',
-};
-
 export default function AccountPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'FARM_ADMIN';
@@ -167,14 +161,7 @@ export default function AccountPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Organization</p>
-              <p className="font-medium">
-                {user?.organizationName}
-                {user?.organizationType && (
-                  <Badge variant="secondary" className="ml-2">
-                    {orgTypeBadge[user.organizationType] ?? user.organizationType}
-                  </Badge>
-                )}
-              </p>
+              <p className="font-medium">{user?.organizationName}</p>
             </div>
           </div>
         </CardContent>

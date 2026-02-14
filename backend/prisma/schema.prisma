@@ -15,12 +15,6 @@ datasource db {
 // ENUMS
 // ============================================
 
-enum OrganizationType {
-  BUYER
-  GROWER
-  TRUCKING
-}
-
 enum UserRole {
   FARM_ADMIN
   MANAGER
@@ -71,12 +65,16 @@ enum ScaleConnectionType {
 model Organization {
   id                    String           @id @default(uuid())
   name                  String
-  type                  OrganizationType
 
   // Payment details
   achRoutingNumber      String?          @map("ach_routing_number")
   achAccountNumber      String?          @map("ach_account_number")
   taxId                 String?          @map("tax_id")
+
+  // Home address / headquarters
+  address               String?
+  latitude              Float?
+  longitude             Float?
 
   // Invoice settings
   invoiceEmail          String?          @map("invoice_email")
@@ -776,4 +774,19 @@ model Invite {
   createdAt      DateTime      @default(now()) @map("created_at")
 
   @@map("invites")
+}
+
+// ============================================
+// PASSWORD RESETS
+// ============================================
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique @default(uuid())
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("password_resets")
 }

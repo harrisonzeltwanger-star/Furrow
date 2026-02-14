@@ -13,6 +13,8 @@ import LoadsPage from '@/pages/LoadsPage';
 import ContractsPage from '@/pages/ContractsPage';
 import AccountPage from '@/pages/AccountPage';
 import AcceptInvitePage from '@/pages/AcceptInvitePage';
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
+import ResetPasswordPage from '@/pages/ResetPasswordPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +30,8 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route
               path="/"
               element={

@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../../hooks/useAuth';
 import { useDeviceType } from '../../hooks/useDeviceType';
@@ -188,9 +188,11 @@ export default function ListingsScreen() {
     }
   }, [stateFilter, minPrice, maxPrice, productTypeFilter]);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [fetchData])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

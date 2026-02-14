@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import path from 'path';
 import { config } from './config/env';
 
 // Initialize Sentry before anything else
@@ -24,10 +23,13 @@ import invoicesRouter from './routes/invoices';
 
 const app = express();
 
+// Trust proxy (Railway, Vercel, etc. sit behind a reverse proxy)
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 
-// CORS — only allow known origins, restrict methods
+// CORS — allow known web origins + mobile app (no origin header)
 const allowedOrigins = [
   config.nodeEnv === 'development' && 'http://localhost:5173',
   config.nodeEnv === 'development' && 'http://127.0.0.1:5173',
@@ -37,7 +39,12 @@ const allowedOrigins = [
 ].filter(Boolean) as string[];
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -80,21 +87,12 @@ app.use('/api/v1/purchase-orders', purchaseOrdersRouter);
 app.use('/api/v1/users', usersRouter);
 app.use('/api/v1/invoices', invoicesRouter);
 
-// Serve frontend in production
-if (process.env.NODE_ENV === 'production') {
-  const frontendPath = path.join(__dirname, '../../frontend/dist');
-  app.use(express.static(frontendPath));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(frontendPath, 'index.html'));
+// 404 handler
+app.use((_req, res) => {
+  res.status(404).json({
+    error: { code: 'NOT_FOUND', message: 'Endpoint not found' },
   });
-} else {
-  // 404 handler (dev only — frontend is separate dev server)
-  app.use((_req, res) => {
-    res.status(404).json({
-      error: { code: 'NOT_FOUND', message: 'Endpoint not found' },
-    });
-  });
-}
+});
 
 // Sentry error handler (must be before custom error handler)
 if (process.env.SENTRY_DSN) {

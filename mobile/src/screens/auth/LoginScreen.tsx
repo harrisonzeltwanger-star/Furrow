@@ -115,6 +115,15 @@ export default function LoginScreen() {
             )}
           />
 
+          <View style={{ alignItems: 'flex-end', marginBottom: 16 }}>
+            <Text
+              style={{ fontSize: 13, color: '#2d5a27', fontWeight: '600' }}
+              onPress={() => navigation.navigate('ForgotPassword')}
+            >
+              Forgot password?
+            </Text>
+          </View>
+
           <Button onPress={handleSubmit(onSubmit)} loading={isSubmitting} disabled={isSubmitting}>
             {isSubmitting ? 'Signing in...' : 'Sign In'}
           </Button>

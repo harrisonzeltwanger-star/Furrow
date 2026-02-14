@@ -9,7 +9,6 @@ import { useAuth } from '../../hooks/useAuth';
 import type { AuthStackParamList } from '../../navigation/AuthNavigator';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import SelectPicker from '../../components/ui/SelectPicker';
 import ErrorBanner from '../../components/ui/ErrorBanner';
 
 const registerSchema = z.object({
@@ -19,19 +18,12 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   phone: z.string().optional(),
   organizationName: z.string().min(1, 'Organization name is required'),
-  organizationType: z.enum(['BUYER', 'GROWER', 'TRUCKING']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword'],
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;
-
-const ORG_TYPES = [
-  { label: 'Buyer (Feedlot)', value: 'BUYER' },
-  { label: 'Grower (Hay Producer)', value: 'GROWER' },
-  { label: 'Trucking Company', value: 'TRUCKING' },
-];
 
 export default function RegisterScreen() {
   const { register: registerUser } = useAuth();
@@ -40,7 +32,7 @@ export default function RegisterScreen() {
 
   const { control, handleSubmit, formState: { errors, isSubmitting } } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { organizationType: 'BUYER' },
+    defaultValues: {},
   });
 
   const onSubmit = async (data: RegisterForm) => {
@@ -104,23 +96,6 @@ export default function RegisterScreen() {
             )}
           />
 
-          <Controller
-            control={control}
-            name="organizationType"
-            render={({ field: { onChange, value } }) => (
-              <View style={{ marginBottom: 12 }}>
-                <SelectPicker
-                  label="Organization Type"
-                  value={value}
-                  options={ORG_TYPES}
-                  onValueChange={onChange}
-                />
-                {errors.organizationType && (
-                  <Text style={{ fontSize: 12, color: '#b33a1a', marginTop: 4 }}>{errors.organizationType.message}</Text>
-                )}
-              </View>
-            )}
-          />
 
           <Controller
             control={control}

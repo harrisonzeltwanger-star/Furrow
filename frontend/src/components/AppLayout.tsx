@@ -12,18 +12,12 @@ const buyerGrowerNav = [
   { path: '/contracts', label: 'Completed' },
 ];
 
-const truckingNav = [
-  { path: '/', label: 'Dashboard' },
-  { path: '/loads', label: 'My Loads' },
-  { path: '/contracts', label: 'Completed' },
-];
-
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const navItems = user?.organizationType === 'TRUCKING' ? truckingNav : buyerGrowerNav;
+  const navItems = buyerGrowerNav;
 
   return (
     <div className="min-h-screen bg-background">

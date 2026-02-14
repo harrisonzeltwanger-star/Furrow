@@ -7,6 +7,7 @@ import { config } from '../config/env';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/permissions';
 import { parsePagination, paginationMeta } from '../utils/pagination';
+import { sendInviteEmail } from '../services/emailService';
 
 const router = Router();
 
@@ -29,7 +30,6 @@ const acceptInviteTeamSchema = z.object({
 
 const acceptInviteAdminSchema = acceptInviteTeamSchema.extend({
   orgName: z.string().min(1),
-  orgType: z.enum(['BUYER', 'GROWER', 'TRUCKING']),
 });
 
 function generateTokens(payload: { userId: string; email: string; role: string; organizationId: string }) {
@@ -87,7 +87,6 @@ router.get('/invites', authenticate, requireRole('FARM_ADMIN'), async (req: Auth
           email: true,
           role: true,
           type: true,
-          token: true,
           expiresAt: true,
           createdAt: true,
         },
@@ -98,12 +97,7 @@ router.get('/invites', authenticate, requireRole('FARM_ADMIN'), async (req: Auth
       prisma.invite.count({ where }),
     ]);
 
-    const invitesWithLinks = invites.map((inv) => ({
-      ...inv,
-      link: `${FRONTEND_URL}/accept-invite?token=${inv.token}`,
-    }));
-
-    res.json({ invites: invitesWithLinks, pagination: paginationMeta(page, limit, totalItems) });
+    res.json({ invites, pagination: paginationMeta(page, limit, totalItems) });
   } catch (error) {
     console.error('List invites error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list invites' } });
@@ -153,6 +147,11 @@ router.post('/invite', authenticate, requireRole('FARM_ADMIN'), async (req: Auth
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
+    const inviter = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      include: { organization: true },
+    });
+
     const invite = await prisma.invite.create({
       data: {
         email: data.email,
@@ -164,6 +163,17 @@ router.post('/invite', authenticate, requireRole('FARM_ADMIN'), async (req: Auth
       },
     });
 
+    const acceptLink = `${FRONTEND_URL}/accept-invite?token=${invite.token}`;
+
+    // Send invite email (non-blocking — don't fail the request if email fails)
+    sendInviteEmail({
+      recipientEmail: invite.email,
+      inviterName: inviter?.name || 'A team member',
+      organizationName: inviter?.organization?.name || 'an organization',
+      role: invite.role,
+      acceptLink,
+    }).catch((err) => console.error('Failed to send invite email:', err));
+
     res.status(201).json({
       invite: {
         id: invite.id,
@@ -171,7 +181,6 @@ router.post('/invite', authenticate, requireRole('FARM_ADMIN'), async (req: Auth
         role: invite.role,
         type: invite.type,
         expiresAt: invite.expiresAt,
-        link: `${FRONTEND_URL}/accept-invite?token=${invite.token}`,
       },
     });
   } catch (error) {
@@ -191,7 +200,7 @@ router.get('/invite/:token', async (req: Request, res: Response): Promise<void> 
   try {
     const invite = await prisma.invite.findUnique({
       where: { token: req.params.token as string },
-      include: { organization: { select: { name: true, type: true } } },
+      include: { organization: { select: { name: true } } },
     });
 
     if (!invite) {
@@ -215,7 +224,6 @@ router.get('/invite/:token', async (req: Request, res: Response): Promise<void> 
         role: invite.role,
         type: invite.type,
         organizationName: invite.organization?.name ?? null,
-        organizationType: invite.organization?.type ?? null,
       },
     });
   } catch (error) {
@@ -272,21 +280,8 @@ router.post('/accept-invite', async (req: Request, res: Response): Promise<void>
         org = await tx.organization.create({
           data: {
             name: adminData.orgName,
-            type: adminData.orgType,
           },
         });
-
-        // If trucking company, create the linked TruckingCompany record
-        if (adminData.orgType === 'TRUCKING') {
-          await tx.truckingCompany.create({
-            data: {
-              name: adminData.orgName,
-              organizationId: org.id,
-              contactEmail: invite.email,
-              contactPhone: adminData.phone,
-            },
-          });
-        }
       } else {
         org = invite.organization!;
       }
@@ -327,7 +322,6 @@ router.post('/accept-invite', async (req: Request, res: Response): Promise<void>
         role: result.user.role,
         organizationId: result.user.organizationId,
         organizationName: result.org.name,
-        organizationType: result.org.type,
       },
     });
   } catch (error) {
@@ -470,6 +464,41 @@ router.delete('/invites/:id', authenticate, requireRole('FARM_ADMIN'), async (re
   } catch (error) {
     console.error('Cancel invite error:', error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to cancel invite' } });
+  }
+});
+
+// PATCH /users/organization/address - update org home address
+const orgAddressSchema = z.object({
+  address: z.string().min(1),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+});
+
+router.patch('/organization/address', authenticate, requireRole('FARM_ADMIN'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const data = orgAddressSchema.parse(req.body);
+
+    const org = await prisma.organization.update({
+      where: { id: req.user!.organizationId },
+      data: {
+        address: data.address,
+        latitude: data.latitude ?? null,
+        longitude: data.longitude ?? null,
+      },
+    });
+
+    res.json({
+      address: org.address,
+      latitude: org.latitude,
+      longitude: org.longitude,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: error.errors } });
+      return;
+    }
+    console.error('Update org address error:', error);
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to update address' } });
   }
 });
 

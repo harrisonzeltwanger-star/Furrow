@@ -7,6 +7,7 @@ export const linking: LinkingOptions<Record<string, unknown>> = {
       Auth: {
         screens: {
           AcceptInvite: 'accept-invite',
+          ResetPassword: 'reset-password',
         },
       },
     },

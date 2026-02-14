@@ -5,7 +5,9 @@ export interface User {
   role: 'FARM_ADMIN' | 'MANAGER' | 'VIEWER';
   organizationId: string;
   organizationName: string;
-  organizationType?: 'BUYER' | 'GROWER' | 'TRUCKING';
+  organizationAddress?: string | null;
+  organizationLatitude?: number | null;
+  organizationLongitude?: number | null;
   phone?: string;
   lastLogin?: string;
 }
@@ -21,7 +23,6 @@ export interface RegisterRequest {
   name: string;
   phone?: string;
   organizationName: string;
-  organizationType: 'BUYER' | 'GROWER' | 'TRUCKING';
 }
 
 export interface AuthResponse {

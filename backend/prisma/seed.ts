@@ -15,7 +15,6 @@ async function main() {
     create: {
       id: '00000000-0000-0000-0000-000000000001',
       name: 'Demo Feedlot',
-      type: 'BUYER',
       invoiceEmail: 'billing@demofeedlot.com',
       billingContactName: 'Admin User',
     },
@@ -41,7 +40,6 @@ async function main() {
     create: {
       id: '00000000-0000-0000-0000-000000000002',
       name: 'Smith Farms',
-      type: 'GROWER',
       invoiceEmail: 'billing@smithfarms.com',
       billingContactName: 'John Smith',
     },

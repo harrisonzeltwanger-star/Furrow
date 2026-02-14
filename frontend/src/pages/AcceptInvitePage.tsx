@@ -11,7 +11,6 @@ interface InviteInfo {
   role: string;
   type: 'admin' | 'team';
   organizationName: string | null;
-  organizationType: string | null;
 }
 
 export default function AcceptInvitePage() {
@@ -30,7 +29,6 @@ export default function AcceptInvitePage() {
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [orgName, setOrgName] = useState('');
-  const [orgType, setOrgType] = useState('');
 
   useEffect(() => {
     if (!token) {
@@ -61,7 +59,6 @@ export default function AcceptInvitePage() {
       };
       if (invite?.type === 'admin') {
         body.orgName = orgName;
-        body.orgType = orgType;
       }
 
       const res = await api.post('/users/accept-invite', body);
@@ -187,21 +184,6 @@ export default function AcceptInvitePage() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="orgType">Organization Type</Label>
-                  <select
-                    id="orgType"
-                    value={orgType}
-                    onChange={(e) => setOrgType(e.target.value)}
-                    required
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Select type...</option>
-                    <option value="BUYER">Buyer (Feedlot)</option>
-                    <option value="GROWER">Grower (Hay Producer)</option>
-                    <option value="TRUCKING">Trucking Company</option>
-                  </select>
-                </div>
               </>
             )}
           </CardContent>

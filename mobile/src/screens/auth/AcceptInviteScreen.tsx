@@ -8,7 +8,6 @@ import { setToken, setRefreshToken, setStoredUser } from '../../utils/storage';
 import type { AuthStackParamList } from '../../navigation/AuthNavigator';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import SelectPicker from '../../components/ui/SelectPicker';
 import ErrorBanner from '../../components/ui/ErrorBanner';
 import LoadingScreen from '../../components/ui/LoadingScreen';
 
@@ -17,7 +16,6 @@ interface InviteInfo {
   role: string;
   type: 'admin' | 'team';
   organizationName: string | null;
-  organizationType: string | null;
 }
 
 export default function AcceptInviteScreen() {
@@ -35,7 +33,6 @@ export default function AcceptInviteScreen() {
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [orgName, setOrgName] = useState('');
-  const [orgType, setOrgType] = useState('');
 
   useEffect(() => {
     if (!token) {
@@ -58,7 +55,6 @@ export default function AcceptInviteScreen() {
       const body: Record<string, string | undefined> = { token, name, password, phone: phone || undefined };
       if (invite?.type === 'admin') {
         body.orgName = orgName;
-        body.orgType = orgType;
       }
 
       const res = await api.post('/users/accept-invite', body);
@@ -120,18 +116,6 @@ export default function AcceptInviteScreen() {
           {invite.type === 'admin' && (
             <>
               <Input label="Organization Name" placeholder="Your company name" value={orgName} onChangeText={setOrgName} containerStyle={{ marginBottom: 12 }} />
-              <SelectPicker
-                label="Organization Type"
-                value={orgType}
-                options={[
-                  { label: 'Buyer (Feedlot)', value: 'BUYER' },
-                  { label: 'Grower (Hay Producer)', value: 'GROWER' },
-                  { label: 'Trucking Company', value: 'TRUCKING' },
-                ]}
-                onValueChange={setOrgType}
-                placeholder="Select type..."
-              />
-              <View style={{ height: 12 }} />
             </>
           )}
 

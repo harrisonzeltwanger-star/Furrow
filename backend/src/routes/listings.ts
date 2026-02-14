@@ -142,7 +142,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         where,
         include: {
           farmLocation: true,
-          organization: { select: { id: true, name: true, type: true } },
+          organization: { select: { id: true, name: true } },
           photos: true,
           documents: true,
           _count: { select: { loads: true } },
@@ -180,7 +180,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           where,
           include: {
             farmLocation: true,
-            organization: { select: { id: true, name: true, type: true } },
+            organization: { select: { id: true, name: true } },
             photos: true,
             documents: true,
             _count: { select: { loads: true } },
@@ -215,7 +215,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       where: { id: req.params.id as string },
       include: {
         farmLocation: true,
-        organization: { select: { id: true, name: true, type: true } },
+        organization: { select: { id: true, name: true } },
         photos: true,
         documents: true,
         poStacks: { include: { po: { select: { id: true, poNumber: true, status: true, signedByBuyerId: true, signedByGrowerId: true } } } },
@@ -271,7 +271,7 @@ router.post('/', requireRole('FARM_ADMIN', 'MANAGER'), async (req: AuthRequest, 
       },
       include: {
         farmLocation: true,
-        organization: { select: { id: true, name: true, type: true } },
+        organization: { select: { id: true, name: true } },
       },
     });
 
@@ -305,7 +305,7 @@ router.patch('/:id', requireRole('FARM_ADMIN', 'MANAGER'), async (req: AuthReque
       data,
       include: {
         farmLocation: true,
-        organization: { select: { id: true, name: true, type: true } },
+        organization: { select: { id: true, name: true } },
       },
     });
 

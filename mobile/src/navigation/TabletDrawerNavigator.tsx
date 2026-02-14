@@ -1,5 +1,6 @@
-import { createDrawerNavigator } from '@react-navigation/drawer';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Text } from 'react-native';
 
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import ListingsScreen from '../screens/listings/ListingsScreen';
@@ -16,16 +17,18 @@ import ContractDetailScreen from '../screens/contracts/ContractDetailScreen';
 import AccountScreen from '../screens/account/AccountScreen';
 import TeamScreen from '../screens/account/TeamScreen';
 
-const Drawer = createDrawerNavigator();
+const Tab = createBottomTabNavigator();
 
-// Stack wrappers for screens that need push navigation
+const headerOpts = { headerStyle: { backgroundColor: '#faf8f4' }, headerTintColor: '#3a2a1a' };
+
+// Stack wrappers
 const ListingsStack = createNativeStackNavigator();
 function ListingsStackScreen() {
   return (
-    <ListingsStack.Navigator screenOptions={{ headerShown: false }}>
-      <ListingsStack.Screen name="ListingsList" component={ListingsScreen} />
-      <ListingsStack.Screen name="ListingDetail" component={ListingDetailScreen} />
-      <ListingsStack.Screen name="CreateListing" component={CreateListingScreen} />
+    <ListingsStack.Navigator screenOptions={headerOpts}>
+      <ListingsStack.Screen name="ListingsList" component={ListingsScreen} options={{ title: 'Listings' }} />
+      <ListingsStack.Screen name="ListingDetail" component={ListingDetailScreen} options={{ title: 'Listing Detail' }} />
+      <ListingsStack.Screen name="CreateListing" component={CreateListingScreen} options={{ title: 'New Listing' }} />
     </ListingsStack.Navigator>
   );
 }
@@ -33,10 +36,10 @@ function ListingsStackScreen() {
 const POsStack = createNativeStackNavigator();
 function POsStackScreen() {
   return (
-    <POsStack.Navigator screenOptions={{ headerShown: false }}>
-      <POsStack.Screen name="ActivePOs" component={ActivePOsScreen} />
-      <POsStack.Screen name="PODetail" component={PODetailScreen} />
-      <POsStack.Screen name="LogDelivery" component={LogDeliveryScreen} />
+    <POsStack.Navigator screenOptions={headerOpts}>
+      <POsStack.Screen name="ActivePOs" component={ActivePOsScreen} options={{ title: 'Active POs' }} />
+      <POsStack.Screen name="PODetail" component={PODetailScreen} options={{ title: 'PO Detail' }} />
+      <POsStack.Screen name="LogDelivery" component={LogDeliveryScreen} options={{ title: 'Log Delivery' }} />
     </POsStack.Navigator>
   );
 }
@@ -44,9 +47,9 @@ function POsStackScreen() {
 const NegotiationsStack = createNativeStackNavigator();
 function NegotiationsStackScreen() {
   return (
-    <NegotiationsStack.Navigator screenOptions={{ headerShown: false }}>
-      <NegotiationsStack.Screen name="NegotiationsList" component={NegotiationsScreen} />
-      <NegotiationsStack.Screen name="NegotiationThread" component={NegotiationThreadScreen} />
+    <NegotiationsStack.Navigator screenOptions={headerOpts}>
+      <NegotiationsStack.Screen name="NegotiationsList" component={NegotiationsScreen} options={{ title: 'Negotiations' }} />
+      <NegotiationsStack.Screen name="NegotiationThread" component={NegotiationThreadScreen} options={{ title: 'Negotiation' }} />
     </NegotiationsStack.Navigator>
   );
 }
@@ -54,9 +57,9 @@ function NegotiationsStackScreen() {
 const ContractsStack = createNativeStackNavigator();
 function ContractsStackScreen() {
   return (
-    <ContractsStack.Navigator screenOptions={{ headerShown: false }}>
-      <ContractsStack.Screen name="ContractsList" component={ContractsScreen} />
-      <ContractsStack.Screen name="ContractDetail" component={ContractDetailScreen} />
+    <ContractsStack.Navigator screenOptions={headerOpts}>
+      <ContractsStack.Screen name="ContractsList" component={ContractsScreen} options={{ title: 'Contracts' }} />
+      <ContractsStack.Screen name="ContractDetail" component={ContractDetailScreen} options={{ title: 'Contract' }} />
     </ContractsStack.Navigator>
   );
 }
@@ -64,36 +67,48 @@ function ContractsStackScreen() {
 const AccountStack = createNativeStackNavigator();
 function AccountStackScreen() {
   return (
-    <AccountStack.Navigator screenOptions={{ headerShown: false }}>
-      <AccountStack.Screen name="AccountMain" component={AccountScreen} />
-      <AccountStack.Screen name="Team" component={TeamScreen} />
+    <AccountStack.Navigator screenOptions={headerOpts}>
+      <AccountStack.Screen name="AccountMain" component={AccountScreen} options={{ title: 'Account' }} />
+      <AccountStack.Screen name="Team" component={TeamScreen} options={{ title: 'Team' }} />
     </AccountStack.Navigator>
+  );
+}
+
+function TabIcon({ name, focused }: { name: string; focused: boolean }) {
+  const icons: Record<string, string> = {
+    Dashboard: '◻',
+    Listings: '📋',
+    POs: '📦',
+    Loads: '🚛',
+    Negotiate: '💬',
+    Contracts: '✅',
+    Account: '👤',
+  };
+  return (
+    <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>
+      {icons[name] || '•'}
+    </Text>
   );
 }
 
 export default function TabletDrawerNavigator() {
   return (
-    <Drawer.Navigator
-      screenOptions={{
-        drawerType: 'permanent',
-        drawerStyle: {
-          backgroundColor: '#f5f0e8',
-          width: 240,
-        },
-        headerStyle: { backgroundColor: '#faf8f4' },
-        headerTintColor: '#3a2a1a',
-        drawerActiveTintColor: '#2d5a27',
-        drawerInactiveTintColor: '#5a4a3a',
-        sceneStyle: { backgroundColor: '#faf8f4' },
-      }}
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
+        tabBarActiveTintColor: '#2d5a27',
+        tabBarInactiveTintColor: '#7a6a5a',
+        tabBarStyle: { backgroundColor: '#fdfcf8', borderTopColor: '#d8cebb' },
+      })}
     >
-      <Drawer.Screen name="Dashboard" component={DashboardScreen} />
-      <Drawer.Screen name="Listings" component={ListingsStackScreen} />
-      <Drawer.Screen name="Active POs" component={POsStackScreen} />
-      <Drawer.Screen name="Loads" component={LoadsScreen} />
-      <Drawer.Screen name="Negotiations" component={NegotiationsStackScreen} />
-      <Drawer.Screen name="Contracts" component={ContractsStackScreen} />
-      <Drawer.Screen name="Account" component={AccountStackScreen} />
-    </Drawer.Navigator>
+      <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ headerShown: true, ...headerOpts }} />
+      <Tab.Screen name="Listings" component={ListingsStackScreen} />
+      <Tab.Screen name="POs" component={POsStackScreen} />
+      <Tab.Screen name="Loads" component={LoadsScreen} options={{ headerShown: true, title: 'Loads', ...headerOpts }} />
+      <Tab.Screen name="Negotiate" component={NegotiationsStackScreen} />
+      <Tab.Screen name="Contracts" component={ContractsStackScreen} />
+      <Tab.Screen name="Account" component={AccountStackScreen} />
+    </Tab.Navigator>
   );
 }

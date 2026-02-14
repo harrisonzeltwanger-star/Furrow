@@ -23,8 +23,6 @@ interface PendingInvite {
   email: string;
   role: string;
   type: string;
-  token: string;
-  link: string;
   expiresAt: string;
   createdAt: string;
 }
@@ -41,10 +39,9 @@ export default function TeamPage() {
   const [adminEmail, setAdminEmail] = useState('');
   const [teamEmail, setTeamEmail] = useState('');
   const [teamRole, setTeamRole] = useState<'MANAGER' | 'VIEWER'>('MANAGER');
-  const [inviteResult, setInviteResult] = useState<{ link: string; type: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ email: string } | null>(null);
   const [inviteError, setInviteError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [copied, setCopied] = useState('');
 
   async function fetchData() {
     try {
@@ -72,8 +69,8 @@ export default function TeamPage() {
     const role = type === 'admin' ? 'FARM_ADMIN' : teamRole;
 
     try {
-      const res = await api.post('/users/invite', { email, role, type });
-      setInviteResult({ link: res.data.invite.link, type });
+      await api.post('/users/invite', { email, role, type });
+      setInviteResult({ email });
       if (type === 'admin') setAdminEmail('');
       else setTeamEmail('');
       fetchData();
@@ -114,12 +111,6 @@ export default function TeamPage() {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       alert(axiosErr.response?.data?.error?.message || 'Delete failed');
     }
-  }
-
-  function copyToClipboard(text: string, id: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(''), 2000);
   }
 
   if (loading) {
@@ -163,7 +154,7 @@ export default function TeamPage() {
                   disabled={!adminEmail || submitting}
                   className="w-full"
                 >
-                  {submitting ? 'Creating...' : 'Create Invite Link'}
+                  {submitting ? 'Sending...' : 'Send Invite'}
                 </Button>
               </div>
             </CardContent>
@@ -204,7 +195,7 @@ export default function TeamPage() {
                   disabled={!teamEmail || submitting}
                   className="w-full"
                 >
-                  {submitting ? 'Creating...' : 'Create Invite Link'}
+                  {submitting ? 'Sending...' : 'Send Invite'}
                 </Button>
               </div>
             </CardContent>
@@ -215,21 +206,9 @@ export default function TeamPage() {
       {/* Invite Result */}
       {inviteResult && (
         <div className="rounded-md border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-4">
-          <p className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">
-            Invite link created! Share this link with the invitee:
+          <p className="text-sm font-medium text-green-800 dark:text-green-200">
+            Invite sent to {inviteResult.email}!
           </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-background rounded px-3 py-2 border overflow-x-auto">
-              {inviteResult.link}
-            </code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copyToClipboard(inviteResult.link, 'result')}
-            >
-              {copied === 'result' ? 'Copied!' : 'Copy'}
-            </Button>
-          </div>
         </div>
       )}
 
@@ -268,14 +247,7 @@ export default function TeamPage() {
                     <td className="px-4 py-2 text-muted-foreground">
                       {new Date(inv.expiresAt).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-2 text-right space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => copyToClipboard(inv.link, inv.id)}
-                      >
-                        {copied === inv.id ? 'Copied!' : 'Copy Link'}
-                      </Button>
+                    <td className="px-4 py-2 text-right">
                       <Button
                         variant="outline"
                         size="sm"

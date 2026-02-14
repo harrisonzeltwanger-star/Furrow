@@ -9,12 +9,18 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  Modal,
+  Dimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Location from 'expo-location';
+import MapView, { Marker, type MapPressEvent } from 'react-native-maps';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import api from '../../config/api';
+import { useAuth } from '../../hooks/useAuth';
 import type { FarmLocation } from '../../types/models';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -64,6 +70,12 @@ interface DocumentAsset {
 
 export default function CreateListingScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<ListingsStackParamList>>();
+  const { user } = useAuth();
+
+  // Drop a pin
+  const [showPinMap, setShowPinMap] = useState(false);
+  const [pinCoord, setPinCoord] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [savingPin, setSavingPin] = useState(false);
 
   // Farm locations
   const [farmLocations, setFarmLocations] = useState<FarmLocation[]>([]);
@@ -92,6 +104,9 @@ export default function CreateListingScreen() {
   const [photos, setPhotos] = useState<PhotoAsset[]>([]);
   const [documents, setDocuments] = useState<DocumentAsset[]>([]);
 
+  // Current location
+  const [locatingUser, setLocatingUser] = useState(false);
+
   // Submission
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -111,6 +126,95 @@ export default function CreateListingScreen() {
     }
     load();
   }, []);
+
+  // -- Use current location --
+
+  const useCurrentLocation = useCallback(async () => {
+    setLocatingUser(true);
+    setError('');
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Location access is needed to use your current location.');
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = position.coords;
+
+      // Reverse geocode to get address
+      const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      const address = geo
+        ? [geo.streetNumber, geo.street, geo.city, geo.region, geo.postalCode].filter(Boolean).join(', ')
+        : `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      const name = geo?.city ? `${geo.city} Location` : 'Current Location';
+
+      // Create farm location via API
+      const { data } = await api.post('/farm-locations', { name, address, latitude, longitude });
+      setFarmLocations((prev) => [...prev, data]);
+      setFarmLocationId(data.id);
+    } catch {
+      setError('Failed to get current location.');
+    } finally {
+      setLocatingUser(false);
+    }
+  }, []);
+
+  // -- Use home address --
+
+  const useHomeAddress = useCallback(async () => {
+    if (!user?.organizationAddress) {
+      Alert.alert('No Home Address', 'Set your home address in Account settings first.');
+      return;
+    }
+    setError('');
+    try {
+      const { data } = await api.post('/farm-locations', {
+        name: 'Home Address',
+        address: user.organizationAddress,
+        latitude: user.organizationLatitude ?? undefined,
+        longitude: user.organizationLongitude ?? undefined,
+      });
+      setFarmLocations((prev) => [...prev, data]);
+      setFarmLocationId(data.id);
+    } catch {
+      setError('Failed to create location from home address.');
+    }
+  }, [user]);
+
+  // -- Drop a pin --
+
+  const handleMapPress = useCallback((e: MapPressEvent) => {
+    setPinCoord(e.nativeEvent.coordinate);
+  }, []);
+
+  const handleSavePin = useCallback(async () => {
+    if (!pinCoord) return;
+    setSavingPin(true);
+    setError('');
+    try {
+      const [geo] = await Location.reverseGeocodeAsync(pinCoord);
+      const address = geo
+        ? [geo.streetNumber, geo.street, geo.city, geo.region, geo.postalCode].filter(Boolean).join(', ')
+        : `${pinCoord.latitude.toFixed(5)}, ${pinCoord.longitude.toFixed(5)}`;
+      const name = geo?.city ? `${geo.city} Pin` : 'Dropped Pin';
+
+      const { data } = await api.post('/farm-locations', {
+        name,
+        address,
+        latitude: pinCoord.latitude,
+        longitude: pinCoord.longitude,
+      });
+      setFarmLocations((prev) => [...prev, data]);
+      setFarmLocationId(data.id);
+      setShowPinMap(false);
+      setPinCoord(null);
+    } catch {
+      setError('Failed to save pin location.');
+    } finally {
+      setSavingPin(false);
+    }
+  }, [pinCoord]);
 
   // -- Photo picker --
 
@@ -307,6 +411,73 @@ export default function CreateListingScreen() {
               }))}
               onValueChange={setFarmLocationId}
             />
+            <TouchableOpacity
+              onPress={useCurrentLocation}
+              disabled={locatingUser}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 10,
+                paddingVertical: 10,
+                borderWidth: 1,
+                borderColor: COLORS.primary,
+                borderRadius: 8,
+                backgroundColor: 'transparent',
+                opacity: locatingUser ? 0.6 : 1,
+              }}
+            >
+              {locatingUser ? (
+                <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 8 }} />
+              ) : (
+                <Text style={{ fontSize: 16, marginRight: 6 }}>{'\u{1F4CD}'}</Text>
+              )}
+              <Text style={{ fontSize: 14, fontWeight: '500', color: COLORS.primary }}>
+                {locatingUser ? 'Getting Location...' : 'Use Current Location'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Use Home Address */}
+            {user?.organizationAddress && (
+              <TouchableOpacity
+                onPress={useHomeAddress}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 8,
+                  paddingVertical: 10,
+                  borderWidth: 1,
+                  borderColor: COLORS.primary,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ fontSize: 16, marginRight: 6 }}>{'\u{1F3E0}'}</Text>
+                <Text style={{ fontSize: 14, fontWeight: '500', color: COLORS.primary }}>
+                  Use Home Address
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Drop a Pin */}
+            <TouchableOpacity
+              onPress={() => setShowPinMap(true)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 8,
+                paddingVertical: 10,
+                borderWidth: 1,
+                borderColor: COLORS.primary,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ fontSize: 16, marginRight: 6 }}>{'\u{1F4CC}'}</Text>
+              <Text style={{ fontSize: 14, fontWeight: '500', color: COLORS.primary }}>
+                Drop a Pin on Map
+              </Text>
+            </TouchableOpacity>
           </CardContent>
         </Card>
 
@@ -642,6 +813,51 @@ export default function CreateListingScreen() {
           Cancel
         </Button>
       </ScrollView>
+
+      {/* Drop a Pin Map Modal */}
+      <Modal visible={showPinMap} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: 16,
+            paddingTop: Platform.OS === 'ios' ? 56 : 16,
+            backgroundColor: COLORS.card,
+            borderBottomWidth: 1,
+            borderBottomColor: COLORS.border,
+          }}>
+            <TouchableOpacity onPress={() => { setShowPinMap(false); setPinCoord(null); }}>
+              <Text style={{ fontSize: 16, color: COLORS.muted }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ fontSize: 17, fontWeight: '600', color: COLORS.foreground }}>Drop a Pin</Text>
+            <TouchableOpacity onPress={handleSavePin} disabled={!pinCoord || savingPin}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: pinCoord ? COLORS.primary : COLORS.muted }}>
+                {savingPin ? 'Saving...' : 'Use Pin'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={{ textAlign: 'center', paddingVertical: 8, fontSize: 13, color: COLORS.muted }}>
+            Tap the map to place a pin
+          </Text>
+          <MapView
+            style={{ flex: 1 }}
+            initialRegion={{
+              latitude: user?.organizationLatitude ?? 39.5,
+              longitude: user?.organizationLongitude ?? -98.0,
+              latitudeDelta: user?.organizationLatitude ? 0.5 : 30,
+              longitudeDelta: user?.organizationLongitude ? 0.5 : 30,
+            }}
+            showsUserLocation
+            showsMyLocationButton
+            onPress={handleMapPress}
+          >
+            {pinCoord && (
+              <Marker coordinate={pinCoord} pinColor={COLORS.primary} />
+            )}
+          </MapView>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

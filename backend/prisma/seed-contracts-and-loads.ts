@@ -7,7 +7,7 @@ async function main() {
   console.log('Seeding dummy contracts + 50 loads...\n');
 
   // Get existing buyer org and admin
-  const buyerOrg = await prisma.organization.findFirst({ where: { type: 'BUYER' } });
+  const buyerOrg = await prisma.organization.findFirst({ where: { name: 'Demo Feedlot' } });
   if (!buyerOrg) { console.error('Run the base seed first.'); process.exit(1); }
   const buyerAdmin = await prisma.user.findFirst({ where: { organizationId: buyerOrg.id, role: 'FARM_ADMIN' } });
   if (!buyerAdmin) { console.error('Run the base seed first.'); process.exit(1); }
@@ -38,7 +38,7 @@ async function main() {
   const growers: Array<{ orgId: string; adminId: string; farmLocId: string; name: string }> = [];
 
   // Include existing Smith Farms grower
-  const smithOrg = await prisma.organization.findFirst({ where: { type: 'GROWER' } });
+  const smithOrg = await prisma.organization.findFirst({ where: { name: 'Smith Farms' } });
   if (smithOrg) {
     const smithAdmin = await prisma.user.findFirst({ where: { organizationId: smithOrg.id, role: 'FARM_ADMIN' } });
     let smithLoc = await prisma.farmLocation.findFirst({ where: { organizationId: smithOrg.id } });
@@ -55,7 +55,7 @@ async function main() {
   for (const g of growerDefs) {
     let org = await prisma.organization.findFirst({ where: { name: g.name } });
     if (!org) {
-      org = await prisma.organization.create({ data: { name: g.name, type: 'GROWER' } });
+      org = await prisma.organization.create({ data: { name: g.name } });
       console.log(`  Created org: ${g.name}`);
     }
 

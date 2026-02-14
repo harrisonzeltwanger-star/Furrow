@@ -6,8 +6,8 @@ async function main() {
   console.log('Seeding dummy Active POs...');
 
   // Get existing orgs and users
-  const buyerOrg = await prisma.organization.findFirst({ where: { type: 'BUYER' } });
-  const growerOrg = await prisma.organization.findFirst({ where: { type: 'GROWER' } });
+  const buyerOrg = await prisma.organization.findFirst({ where: { name: 'Demo Feedlot' } });
+  const growerOrg = await prisma.organization.findFirst({ where: { name: 'Smith Farms' } });
 
   if (!buyerOrg || !growerOrg) {
     console.error('Run the base seed first — need buyer and grower orgs.');

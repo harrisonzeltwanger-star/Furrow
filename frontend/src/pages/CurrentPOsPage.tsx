@@ -93,6 +93,7 @@ export default function CurrentPOsPage() {
   const [pos, setPOs] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [centerFilter, setCenterFilter] = useState('all');
 
   // Center + Hay Class assignment state
@@ -419,11 +420,15 @@ export default function CurrentPOsPage() {
     return pos.filter((p) => {
       if (typeFilter !== 'all' && p.poStacks[0]?.listing.productType !== typeFilter) return false;
       if (centerFilter !== 'all' && p.center !== centerFilter) return false;
+      if (roleFilter === 'buying' && p.buyerOrgId !== orgId) return false;
+      if (roleFilter === 'selling' && p.growerOrgId !== orgId) return false;
       return true;
     });
-  }, [pos, typeFilter, centerFilter]);
+  }, [pos, typeFilter, centerFilter, roleFilter, orgId]);
 
   const totalContractedTons = useMemo(() => filteredPOs.reduce((sum, p) => sum + p.contractedTons, 0), [filteredPOs]);
+  const totalDeliveredTons = useMemo(() => filteredPOs.reduce((sum, p) => sum + p.deliveredTons, 0), [filteredPOs]);
+  const totalRemainingTons = useMemo(() => Math.max(0, totalContractedTons - totalDeliveredTons), [totalContractedTons, totalDeliveredTons]);
   const overallPct = useMemo(() => {
     if (filteredPOs.length === 0) return 0;
     const sum = filteredPOs.reduce((acc, p) => {
@@ -468,6 +473,18 @@ export default function CurrentPOsPage() {
         <>
           <div className="flex flex-wrap items-end gap-4 mb-4">
             <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Role</label>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="block w-48 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">Buying & Selling</option>
+                <option value="buying">Buying</option>
+                <option value="selling">Selling</option>
+              </select>
+            </div>
+            <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Product Type</label>
               <select
                 value={typeFilter}
@@ -495,7 +512,7 @@ export default function CurrentPOsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
             <Card>
               <CardContent className="py-3 px-4">
                 <div className="text-xs font-medium text-muted-foreground">Active POs</div>
@@ -504,13 +521,25 @@ export default function CurrentPOsPage() {
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <div className="text-xs font-medium text-muted-foreground">Contracted Tons</div>
-                <div className="text-2xl font-bold">{totalContractedTons.toLocaleString()}</div>
+                <div className="text-xs font-medium text-muted-foreground">Contracted</div>
+                <div className="text-2xl font-bold">{totalContractedTons.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">tons</span></div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <div className="text-xs font-medium text-muted-foreground">Overall % Complete</div>
+                <div className="text-xs font-medium text-muted-foreground">Delivered</div>
+                <div className="text-2xl font-bold text-green-600">{totalDeliveredTons.toLocaleString(undefined, { maximumFractionDigits: 1 })} <span className="text-sm font-normal text-muted-foreground">tons</span></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 px-4">
+                <div className="text-xs font-medium text-muted-foreground">Remaining</div>
+                <div className="text-2xl font-bold text-amber-600">{totalRemainingTons.toLocaleString(undefined, { maximumFractionDigits: 1 })} <span className="text-sm font-normal text-muted-foreground">tons</span></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 px-4">
+                <div className="text-xs font-medium text-muted-foreground">Overall Progress</div>
                 <div className="text-2xl font-bold">{overallPct}%</div>
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-1">
                   <div className="h-full bg-green-500 rounded-full" style={{ width: `${overallPct}%` }} />
@@ -535,7 +564,9 @@ export default function CurrentPOsPage() {
       ) : (
         <div className="space-y-3">
           {filteredPOs.map((p) => {
-            const counterparty = p.buyerOrgId === orgId ? p.growerOrg.name : p.buyerOrg.name;
+            const isBuying = p.buyerOrgId === orgId;
+            const counterparty = isBuying ? p.growerOrg.name : p.buyerOrg.name;
+            const roleLabel = isBuying ? 'Buying' : 'Selling';
             const stackIds = p.poStacks.map((s) => s.listing.stackId).join(', ');
             const productType = p.poStacks[0]?.listing.productType;
             const pctDelivered = p.contractedTons > 0 ? Math.min(100, Math.round((p.deliveredTons / p.contractedTons) * 100)) : 0;
@@ -558,13 +589,13 @@ export default function CurrentPOsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="font-semibold">{p.poNumber || stackIds || 'PO'}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-green-100 text-green-800">
-                          ACTIVE
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isBuying ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                          {roleLabel}
                         </span>
                       </div>
                       <div className="text-sm text-muted-foreground">
                         {productType && <span>{productType} &middot; </span>}
-                        {counterparty}
+                        {isBuying ? 'From ' : 'To '}{counterparty}
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -746,7 +777,7 @@ export default function CurrentPOsPage() {
                         {/* Contract terms */}
                         <div className="rounded-lg bg-muted/50 p-4">
                           <h4 className="text-sm font-semibold mb-3">Contract Terms</h4>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                             <div>
                               <span className="text-muted-foreground text-xs">Delivery Window</span>
                               <div className="font-medium">{formatDate(po.deliveryStartDate)} &mdash; {formatDate(po.deliveryEndDate)}</div>
@@ -760,8 +791,12 @@ export default function CurrentPOsPage() {
                               <div className="font-medium">{formatDate(po.signedAt)}</div>
                             </div>
                             <div>
-                              <span className="text-muted-foreground text-xs">Parties</span>
-                              <div className="font-medium truncate">{po.buyerOrg.name} / {po.growerOrg.name}</div>
+                              <span className="text-muted-foreground text-xs">Buyer</span>
+                              <div className="font-medium truncate">{po.buyerOrg.name}</div>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground text-xs">Seller</span>
+                              <div className="font-medium truncate">{po.growerOrg.name}</div>
                             </div>
                             {po.qualityNotes && (
                               <div className="col-span-2 sm:col-span-4">

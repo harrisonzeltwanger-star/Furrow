@@ -5,6 +5,9 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { config } from '../config/env';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { sendPasswordResetEmail } from '../services/emailService';
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const router = Router();
 
@@ -15,7 +18,6 @@ const registerSchema = z.object({
   name: z.string().min(1),
   phone: z.string().optional(),
   organizationName: z.string().min(1),
-  organizationType: z.enum(['BUYER', 'GROWER', 'TRUCKING']),
 });
 
 const loginSchema = z.object({
@@ -27,6 +29,22 @@ function generateTokens(payload: { userId: string; email: string; role: string; 
   const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn });
   const refreshToken = jwt.sign(payload, config.jwtRefreshSecret, { expiresIn: config.jwtRefreshExpiresIn });
   return { token, refreshToken };
+}
+
+function userResponse(user: { id: string; email: string; name: string; phone?: string | null; role: string; organizationId: string; lastLogin?: Date | null; organization: { name: string; address?: string | null; latitude?: number | null; longitude?: number | null } }) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    ...(user.phone !== undefined && { phone: user.phone }),
+    role: user.role,
+    organizationId: user.organizationId,
+    organizationName: user.organization.name,
+    organizationAddress: user.organization.address ?? null,
+    organizationLatitude: user.organization.latitude ?? null,
+    organizationLongitude: user.organization.longitude ?? null,
+    ...(user.lastLogin !== undefined && { lastLogin: user.lastLogin }),
+  };
 }
 
 // POST /auth/register
@@ -50,7 +68,6 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       const org = await tx.organization.create({
         data: {
           name: data.organizationName,
-          type: data.organizationType,
         },
       });
 
@@ -65,18 +82,6 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
-      // If trucking company, create the linked TruckingCompany record
-      if (data.organizationType === 'TRUCKING') {
-        await tx.truckingCompany.create({
-          data: {
-            name: data.organizationName,
-            organizationId: org.id,
-            contactEmail: data.email,
-            contactPhone: data.phone,
-          },
-        });
-      }
-
       return { org, user };
     });
 
@@ -89,15 +94,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 
     res.status(201).json({
       ...tokens,
-      user: {
-        id: result.user.id,
-        email: result.user.email,
-        name: result.user.name,
-        role: result.user.role,
-        organizationId: result.user.organizationId,
-        organizationName: result.org.name,
-        organizationType: result.org.type,
-      },
+      user: userResponse({ ...result.user, organization: result.org }),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -157,15 +154,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       ...tokens,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        organizationId: user.organizationId,
-        organizationName: user.organization.name,
-        organizationType: user.organization.type,
-      },
+      user: userResponse(user),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -226,15 +215,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       ...tokens,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        organizationId: user.organizationId,
-        organizationName: user.organization.name,
-        organizationType: user.organization.type,
-      },
+      user: userResponse(user),
     });
   } catch {
     res.status(401).json({
@@ -259,22 +240,119 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response): Promise
     }
 
     res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        phone: user.phone,
-        role: user.role,
-        organizationId: user.organizationId,
-        organizationName: user.organization.name,
-        organizationType: user.organization.type,
-        lastLogin: user.lastLogin,
-      },
+      user: userResponse(user),
     });
   } catch (error) {
     console.error('Get me error:', error);
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch user' },
+    });
+  }
+});
+
+// POST /auth/forgot-password
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const data = forgotPasswordSchema.parse(req.body);
+
+    // Always return success to avoid leaking whether the email exists
+    const user = await prisma.user.findUnique({ where: { email: data.email } });
+
+    if (user && user.isActive) {
+      const resetRecord = await prisma.passwordReset.create({
+        data: {
+          email: data.email,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+        },
+      });
+
+      await sendPasswordResetEmail({
+        recipientEmail: data.email,
+        resetLink: `${FRONTEND_URL}/reset-password?token=${resetRecord.token}`,
+      });
+    }
+
+    res.json({ message: 'If an account with that email exists, a password reset link has been sent.' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input',
+          details: error.errors,
+        },
+      });
+      return;
+    }
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to process request' },
+    });
+  }
+});
+
+// POST /auth/reset-password
+const resetPasswordSchema = z.object({
+  token: z.string().uuid(),
+  password: z.string().min(8),
+});
+
+router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const data = resetPasswordSchema.parse(req.body);
+
+    const resetRecord = await prisma.passwordReset.findUnique({
+      where: { token: data.token },
+    });
+
+    if (!resetRecord || resetRecord.used || resetRecord.expiresAt < new Date()) {
+      res.status(400).json({
+        error: { code: 'INVALID_TOKEN', message: 'This reset link is invalid or has expired.' },
+      });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { email: resetRecord.email } });
+
+    if (!user) {
+      res.status(400).json({
+        error: { code: 'INVALID_TOKEN', message: 'This reset link is invalid or has expired.' },
+      });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(data.password, 12);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      }),
+      prisma.passwordReset.update({
+        where: { id: resetRecord.id },
+        data: { used: true },
+      }),
+    ]);
+
+    res.json({ message: 'Password has been reset successfully.' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input',
+          details: error.errors,
+        },
+      });
+      return;
+    }
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to reset password' },
     });
   }
 });
