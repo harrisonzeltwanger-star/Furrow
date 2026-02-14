@@ -39,8 +39,7 @@ export default function LoadsScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [vendorFilter, setVendorFilter] = useState<string>('all');
-  const [productFilter, setProductFilter] = useState<string>('all');
-  const [baleTypeFilter, setBaleTypeFilter] = useState<string>('all');
+  const [descriptionFilter, setDescriptionFilter] = useState<string>('all');
   const [centerFilter, setCenterFilter] = useState<string>('all');
 
   // Edit state
@@ -139,18 +138,11 @@ export default function LoadsScreen() {
     return Array.from(set).sort();
   }, [loads, orgId]);
 
-  const productTypes = useMemo<string[]>(() => {
+  const baleDescriptions = useMemo<string[]>(() => {
     const set = new Set<string>();
     loads.forEach((l) => {
-      if (l.listing.productType) set.add(l.listing.productType);
-    });
-    return Array.from(set).sort();
-  }, [loads]);
-
-  const baleTypes = useMemo<string[]>(() => {
-    const set = new Set<string>();
-    loads.forEach((l) => {
-      if (l.listing.baleType) set.add(l.listing.baleType);
+      const desc = [l.listing.productType, l.listing.baleType].filter(Boolean).join('(') + (l.listing.baleType ? ')' : '');
+      if (desc) set.add(desc);
     });
     return Array.from(set).sort();
   }, [loads]);
@@ -171,18 +163,16 @@ export default function LoadsScreen() {
         const vendor = l.po.buyerOrg.id === orgId ? l.po.growerOrg.name : l.po.buyerOrg.name;
         if (vendor !== vendorFilter) return false;
       }
-      if (productFilter !== 'all') {
-        if (l.listing.productType !== productFilter) return false;
-      }
-      if (baleTypeFilter !== 'all') {
-        if (l.listing.baleType !== baleTypeFilter) return false;
+      if (descriptionFilter !== 'all') {
+        const desc = [l.listing.productType, l.listing.baleType].filter(Boolean).join('(') + (l.listing.baleType ? ')' : '');
+        if (desc !== descriptionFilter) return false;
       }
       if (centerFilter !== 'all') {
         if (l.po.center !== centerFilter) return false;
       }
       return true;
     });
-  }, [loads, vendorFilter, productFilter, baleTypeFilter, centerFilter, orgId]);
+  }, [loads, vendorFilter, descriptionFilter, centerFilter, orgId]);
 
   const totalNetTons = useMemo<number>(
     () => filtered.reduce((sum, l) => sum + l.netWeight / 2000, 0),
@@ -501,52 +491,26 @@ export default function LoadsScreen() {
                   </>
                 )}
 
-                {/* Product type filter */}
-                {productTypes.length > 0 && (
+                {/* Bale description filter */}
+                {baleDescriptions.length > 0 && (
                   <>
-                    <Text style={styles.filterLabel}>Product Type</Text>
+                    <Text style={styles.filterLabel}>Bale Description</Text>
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       style={styles.filterRow}
                     >
                       <FilterChip
-                        label="All Products"
-                        selected={productFilter === 'all'}
-                        onPress={() => setProductFilter('all')}
+                        label="All Descriptions"
+                        selected={descriptionFilter === 'all'}
+                        onPress={() => setDescriptionFilter('all')}
                       />
-                      {productTypes.map((p) => (
+                      {baleDescriptions.map((d) => (
                         <FilterChip
-                          key={p}
-                          label={p}
-                          selected={productFilter === p}
-                          onPress={() => setProductFilter(p)}
-                        />
-                      ))}
-                    </ScrollView>
-                  </>
-                )}
-
-                {/* Bale type filter */}
-                {baleTypes.length > 0 && (
-                  <>
-                    <Text style={styles.filterLabel}>Bale Type</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.filterRow}
-                    >
-                      <FilterChip
-                        label="All Bale Types"
-                        selected={baleTypeFilter === 'all'}
-                        onPress={() => setBaleTypeFilter('all')}
-                      />
-                      {baleTypes.map((b) => (
-                        <FilterChip
-                          key={b}
-                          label={b}
-                          selected={baleTypeFilter === b}
-                          onPress={() => setBaleTypeFilter(b)}
+                          key={d}
+                          label={d}
+                          selected={descriptionFilter === d}
+                          onPress={() => setDescriptionFilter(d)}
                         />
                       ))}
                     </ScrollView>
