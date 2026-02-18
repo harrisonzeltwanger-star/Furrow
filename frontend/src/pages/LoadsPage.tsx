@@ -51,6 +51,7 @@ export default function LoadsPage() {
   const [loads, setLoads] = useState<LoadEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [vendorFilter, setVendorFilter] = useState('all');
+  const [poFilter, setPoFilter] = useState('all');
   const [descriptionFilter, setDescriptionFilter] = useState('all');
   const [centerFilter, setCenterFilter] = useState('all');
 
@@ -127,6 +128,14 @@ export default function LoadsPage() {
     return Array.from(set).sort();
   }, [loads, orgId]);
 
+  const poNumbers = useMemo(() => {
+    const set = new Set<string>();
+    loads.forEach((l) => {
+      if (l.po.poNumber) set.add(l.po.poNumber);
+    });
+    return Array.from(set).sort();
+  }, [loads]);
+
   const baleDescriptions = useMemo(() => {
     const set = new Set<string>();
     loads.forEach((l) => {
@@ -149,6 +158,9 @@ export default function LoadsPage() {
         const vendor = l.po.buyerOrg.id === orgId ? l.po.growerOrg.name : l.po.buyerOrg.name;
         if (vendor !== vendorFilter) return false;
       }
+      if (poFilter !== 'all') {
+        if (l.po.poNumber !== poFilter) return false;
+      }
       if (descriptionFilter !== 'all') {
         const desc = [l.listing.productType, l.listing.baleType].filter(Boolean).join('(') + (l.listing.baleType ? ')' : '');
         if (desc !== descriptionFilter) return false;
@@ -158,7 +170,7 @@ export default function LoadsPage() {
       }
       return true;
     });
-  }, [loads, vendorFilter, descriptionFilter, centerFilter, orgId]);
+  }, [loads, vendorFilter, poFilter, descriptionFilter, centerFilter, orgId]);
 
   // Summary stats
   const totalNetTons = useMemo(() => filtered.reduce((sum, l) => sum + l.netWeight / 2000, 0), [filtered]);
@@ -265,6 +277,19 @@ export default function LoadsPage() {
             <option value="all">All Vendors</option>
             {vendors.map((v) => (
               <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">PO #</label>
+          <select
+            value={poFilter}
+            onChange={(e) => setPoFilter(e.target.value)}
+            className="block w-48 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="all">All POs</option>
+            {poNumbers.map((p) => (
+              <option key={p} value={p}>{p}</option>
             ))}
           </select>
         </div>

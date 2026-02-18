@@ -39,6 +39,7 @@ export default function LoadsScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [vendorFilter, setVendorFilter] = useState<string>('all');
+  const [poFilter, setPoFilter] = useState<string>('all');
   const [descriptionFilter, setDescriptionFilter] = useState<string>('all');
   const [centerFilter, setCenterFilter] = useState<string>('all');
 
@@ -138,6 +139,14 @@ export default function LoadsScreen() {
     return Array.from(set).sort();
   }, [loads, orgId]);
 
+  const poNumbers = useMemo<string[]>(() => {
+    const set = new Set<string>();
+    loads.forEach((l) => {
+      if (l.po.poNumber) set.add(l.po.poNumber);
+    });
+    return Array.from(set).sort();
+  }, [loads]);
+
   const baleDescriptions = useMemo<string[]>(() => {
     const set = new Set<string>();
     loads.forEach((l) => {
@@ -163,6 +172,9 @@ export default function LoadsScreen() {
         const vendor = l.po.buyerOrg.id === orgId ? l.po.growerOrg.name : l.po.buyerOrg.name;
         if (vendor !== vendorFilter) return false;
       }
+      if (poFilter !== 'all') {
+        if (l.po.poNumber !== poFilter) return false;
+      }
       if (descriptionFilter !== 'all') {
         const desc = [l.listing.productType, l.listing.baleType].filter(Boolean).join('(') + (l.listing.baleType ? ')' : '');
         if (desc !== descriptionFilter) return false;
@@ -172,7 +184,7 @@ export default function LoadsScreen() {
       }
       return true;
     });
-  }, [loads, vendorFilter, descriptionFilter, centerFilter, orgId]);
+  }, [loads, vendorFilter, poFilter, descriptionFilter, centerFilter, orgId]);
 
   const totalNetTons = useMemo<number>(
     () => filtered.reduce((sum, l) => sum + l.netWeight / 2000, 0),
@@ -485,6 +497,32 @@ export default function LoadsScreen() {
                           label={v}
                           selected={vendorFilter === v}
                           onPress={() => setVendorFilter(v)}
+                        />
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* PO filter */}
+                {poNumbers.length > 0 && (
+                  <>
+                    <Text style={styles.filterLabel}>PO #</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.filterRow}
+                    >
+                      <FilterChip
+                        label="All POs"
+                        selected={poFilter === 'all'}
+                        onPress={() => setPoFilter('all')}
+                      />
+                      {poNumbers.map((p) => (
+                        <FilterChip
+                          key={p}
+                          label={p}
+                          selected={poFilter === p}
+                          onPress={() => setPoFilter(p)}
                         />
                       ))}
                     </ScrollView>
